@@ -1,0 +1,24 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.env
+.env*.local
+
+# Expo / native
+expo-env.d.ts
+.ios/
+.android/
+ios/
+android/
+
+# Debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS
+.DS_Store
+
+# TypeScript
+*.tsbuildinfo
