@@ -6,7 +6,7 @@ const {
   addToWishlist,
   removeFromWishlist,
   clearWishlist,
-} = require("../controllers/wishlistController");
+} = require("../controllers/whishlistController");
 
 // Mounted at "/api/wishlist"
 

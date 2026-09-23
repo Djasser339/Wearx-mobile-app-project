@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Men's Store — Test App</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2e38;
+    --text: #e6e8ec; --muted: #9aa1ad; --accent: #4f8cff;
+    --ok: #2fbf71; --err: #ef5a5a; --gold: #e0b84f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; white-space: nowrap; }
+  header input, header select { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 6px; font-size: 12px; }
+  #baseUrl { width: 200px; }
+  .tabbar { display: flex; gap: 4px; margin-left: auto; }
+  .tabbar button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .tabbar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .badge { background: var(--accent); color: #fff; border-radius: 999px; font-size: 10px; padding: 1px 6px; margin-left: 4px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  h2.section { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 10px; }
+  .scroller { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+  .cats { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .cats button { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+  .cats button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; width: 200px; flex-shrink: 0; }
+  .grid .card { width: auto; }
+  .card img { width: 100%; aspect-ratio: 4/5; object-fit: cover; background: #0f1115; }
+  .card-body { padding: 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .card-body .brand { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  .card-body .name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+  .card-body .price { font-size: 13px; color: var(--gold); font-weight: 600; }
+  .tag { display: inline-block; font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: #fff; width: fit-content; }
+  .tag.POPULAR { background: var(--gold); color: #000; }
+  .selects { display: flex; gap: 4px; }
+  .selects select { flex: 1; font-size: 11px; padding: 4px; background: #0f1115; border: 1px solid var(--border); color: var(--text); border-radius: 5px; }
+  .card-actions { display: flex; gap: 6px; margin-top: auto; }
+  .card-actions button { flex: 1; padding: 6px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border); background: #0f1115; color: var(--text); cursor: pointer; }
+  .card-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card-actions button.wish { flex: 0 0 34px; }
+  .card-actions button.wish.active { color: var(--err); border-color: var(--err); }
+  .stock-note { font-size: 10px; color: var(--muted); }
+
+  .row-item { display: flex; gap: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; align-items: center; }
+  .row-item img { width: 60px; height: 70px; object-fit: cover; border-radius: 6px; background: #0f1115; }
+  .row-item .info { flex: 1; }
+  .row-item .info .name { font-size: 13px; font-weight: 600; }
+  .row-item .info .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .qty-ctrl { display: flex; align-items: center; gap: 6px; }
+  .qty-ctrl button { width: 26px; height: 26px; border-radius: 5px; border: 1px solid var(--border); background: #0f1115; color: var(--text); cursor: pointer; }
+  .row-item .price-col { font-size: 13px; color: var(--gold); font-weight: 600; min-width: 70px; text-align: right; }
+  .row-item .remove { background: none; border: none; color: var(--err); cursor: pointer; font-size: 16px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .panel h3 { margin: 0 0 10px; font-size: 13px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .field label { font-size: 11px; color: var(--muted); }
+  .field input, .field select { background: #0f1115; border: 1px solid var(--border); color: var(--text); padding: 7px 8px; border-radius: 6px; font-size: 13px; }
+  .field-row { display: flex; gap: 8px; }
+  .field-row .field { flex: 1; }
+  .btn { background: var(--accent); color: #fff; border: none; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn.block { width: 100%; }
+  .total-line { display: flex; justify-content: space-between; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--border); margin-top: 6px; }
+  .total-line strong { color: var(--gold); }
+  .empty { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+  .status-pill { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; }
+  .status-pending { background: #4a3d1f; color: #e0b84f; }
+  .status-confirmed { background: #1f3a4a; color: #6fb8ef; }
+  .status-shipped { background: #2a2650; color: #a99bf0; }
+  .status-delivered { background: #1c3d2c; color: #2fbf71; }
+  .status-cancelled { background: #3d1f1f; color: #ef5a5a; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border); padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 100; }
+  #toast.ok { border-color: var(--ok); color: var(--ok); }
+  #toast.err { border-color: var(--err); color: var(--err); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛍️ Men's Store</h1>
+  <input id="baseUrl" value="http://localhost:5000/api" title="API base URL" />
+  <select id="userSelect" title="Current user"><option value="">Loading users...</option></select>
+  <button class="btn secondary" style="padding:6px 10px;font-size:12px" onclick="showNewUser()">+ New user</button>
+  <div class="tabbar">
+    <button class="tabbtn active" data-tab="shop" onclick="switchTab('shop')">Shop</button>
+    <button class="tabbtn" data-tab="cart" onclick="switchTab('cart')">Cart <span id="cartBadge" class="badge" style="display:none">0</span></button>
+    <button class="tabbtn" data-tab="wishlist" onclick="switchTab('wishlist')">Wishlist <span id="wishBadge" class="badge" style="display:none">0</span></button>
+    <button class="tabbtn" data-tab="orders" onclick="switchTab('orders')">Orders</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ SHOP ============ -->
+  <div class="tab active" id="tab-shop">
+
+    <div class="panel" id="newUserPanel" style="display:none">
+      <h3>Create a test user</h3>
+      <div class="field-row">
+        <div class="field"><label>Name</label><input id="nu_name" value="Test User" /></div>
+        <div class="field"><label>Email</label><input id="nu_email" value="" placeholder="e.g. test1@mail.com" /></div>
+      </div>
+      <button class="btn" onclick="createUser()">Create & select</button>
+    </div>
+
+    <div class="panel" id="newProductPanel" style="display:none">
+      <h3>Add a test product</h3>
+      <div class="field-row">
+        <div class="field"><label>Name</label><input id="np_name" value="New Item" /></div>
+        <div class="field"><label>Brand</label><input id="np_brand" value="Generic" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Category</label>
+          <select id="np_category">
+            <option>T-Shirts</option><option>Shirts</option><option>Pants</option>
+            <option>Shorts</option><option>Jackets</option><option>Shoes</option><option>Accessories</option>
+          </select>
+        </div>
+        <div class="field"><label>Price</label><input id="np_price" type="number" value="3000" /></div>
+        <div class="field"><label>Stock</label><input id="np_stock" type="number" value="10" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Sizes (comma sep)</label><input id="np_sizes" value="S, M, L" /></div>
+        <div class="field"><label>Colors (comma sep)</label><input id="np_colors" value="Black, White" /></div>
+        <div class="field"><label>Tag</label>
+          <select id="np_tag"><option value="">(none)</option><option value="NEW">NEW</option><option value="POPULAR">POPULAR</option></select>
+        </div>
+      </div>
+      <button class="btn" onclick="createProduct()">Add product</button>
+    </div>
+
+    <details style="margin-bottom: 10px">
+      <summary>Testing tools (create user / product manually)</summary>
+      <div style="margin-top:8px">
+        <button class="btn secondary" style="font-size:12px;padding:6px 10px" onclick="toggle('newUserPanel')">Toggle new user form</button>
+        <button class="btn secondary" style="font-size:12px;padding:6px 10px" onclick="toggle('newProductPanel')">Toggle new product form</button>
+      </div>
+    </details>
+
+    <h2 class="section">Offers</h2>
+    <div class="scroller" id="offersScroller"><div class="empty">Loading...</div></div>
+
+    <h2 class="section">Browse</h2>
+    <div class="cats" id="catButtons"></div>
+    <div class="grid" id="productGrid"><div class="empty">Loading products...</div></div>
+  </div>
+
+  <!-- ============ CART ============ -->
+  <div class="tab" id="tab-cart">
+    <h2 class="section">Your cart</h2>
+    <div id="cartList"><div class="empty">Select a user above to view their cart.</div></div>
+    <div class="panel" id="cartSummary" style="display:none">
+      <div class="total-line"><span>Total</span><strong id="cartTotal">0 DA</strong></div>
+      <button class="btn block" onclick="showCheckout()">Checkout</button>
+    </div>
+
+    <div class="panel" id="checkoutPanel" style="display:none">
+      <h3>Shipping details</h3>
+      <div class="field-row">
+        <div class="field"><label>Full name</label><input id="co_name" value="Ahmed Benali" /></div>
+        <div class="field"><label>Phone</label><input id="co_phone" value="0550123456" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Address</label><input id="co_address" value="12 Rue Didouche Mourad" /></div>
+        <div class="field"><label>City</label><input id="co_city" value="Algiers" /></div>
+        <div class="field"><label>Postal code</label><input id="co_postal" value="16000" /></div>
+      </div>
+      <button class="btn block" onclick="placeOrder()">Place order</button>
+    </div>
+  </div>
+
+  <!-- ============ WISHLIST ============ -->
+  <div class="tab" id="tab-wishlist">
+    <h2 class="section">Saved items</h2>
+    <div id="wishlistList"><div class="empty">Select a user above to view their wishlist.</div></div>
+  </div>
+
+  <!-- ============ ORDERS ============ -->
+  <div class="tab" id="tab-orders">
+    <h2 class="section">Order history</h2>
+    <div id="ordersList"><div class="empty">Select a user above to view their orders.</div></div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+  let currentUserId = "";
+  let allProducts = [];
+  let activeCategory = "";
+  const CATEGORIES = ["T-Shirts","Shirts","Pants","Shorts","Jackets","Shoes","Accessories"];
+
+  const baseUrl = () => document.getElementById("baseUrl").value.replace(/\/$/, "");
+  const val = (id) => document.getElementById(id).value;
+  const csv = (id) => val(id).split(",").map(s => s.trim()).filter(Boolean);
+  const toggle = (id) => { const el = document.getElementById(id); el.style.display = el.style.display === "none" ? "block" : "none"; };
+  const money = (n) => Number(n).toLocaleString() + " DA";
+
+  function toast(msg, ok) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className = ok ? "ok" : "err";
+    t.style.display = "block";
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => (t.style.display = "none"), 2500);
+  }
+
+  // ---------- core request helper ----------
+  async function api(method, path, body) {
+    try {
+      const options = { method, headers: {} };
+      if (body !== undefined) {
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(body);
+      }
+      const res = await fetch(baseUrl() + path, options);
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { success: false, message: text }; }
+
+      if (!res.ok) {
+        toast(data.message || (method + " " + path + " failed (" + res.status + ")"), false);
+      }
+      return { ok: res.ok, status: res.status, data };
+    } catch (err) {
+      toast("Network error — is the server running and CORS enabled?", false);
+      return { ok: false, status: 0, data: null };
+    }
+  }
+
+  // ---------- tabs ----------
+  function switchTab(name) {
+    document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.getElementById("tab-" + name).classList.add("active");
+    if (name === "cart") loadCart();
+    if (name === "wishlist") loadWishlist();
+    if (name === "orders") loadOrders();
+  }
+
+  function showNewUser() { toggle("newUserPanel"); }
+
+  // ---------- users ----------
+  async function loadUsers() {
+    const { ok, data } = await api("GET", "/users");
+    const select = document.getElementById("userSelect");
+    select.innerHTML = "";
+    if (!ok || !data.data || data.data.length === 0) {
+      select.innerHTML = '<option value="">No users yet — create one</option>';
+      return;
+    }
+    data.data.forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u._id;
+      opt.textContent = u.name + " (" + u.email + ")";
+      select.appendChild(opt);
+    });
+    currentUserId = select.value;
+    onUserChanged();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("userSelect").addEventListener("change", (e) => {
+      currentUserId = e.target.value;
+      onUserChanged();
+    });
+    loadUsers();
+    loadCategories();
+    loadOffers();
+    loadProducts();
+  });
+
+  function onUserChanged() {
+    refreshCounts();
+  }
+
+  async function createUser() {
+    const email = val("nu_email") || ("test" + Date.now() + "@mail.com");
+    const { ok, data } = await api("POST", "/users", {
+      name: val("nu_name"), email, password: "password123", role: "customer",
+    });
+    if (ok) {
+      toast("User created", true);
+      await loadUsers();
+      document.getElementById("userSelect").value = data.data._id;
+      currentUserId = data.data._id;
+      onUserChanged();
+      document.getElementById("newUserPanel").style.display = "none";
+    }
+  }
+
+  // ---------- products / shop ----------
+  function loadCategories() {
+    const wrap = document.getElementById("catButtons");
+    wrap.innerHTML = "";
+    const all = document.createElement("button");
+    all.textContent = "All"; all.className = "active";
+    all.onclick = () => selectCategory("", all);
+    wrap.appendChild(all);
+    CATEGORIES.forEach(cat => {
+      const b = document.createElement("button");
+      b.textContent = cat;
+      b.onclick = () => selectCategory(cat, b);
+      wrap.appendChild(b);
+    });
+  }
+  function selectCategory(cat, btn) {
+    activeCategory = cat;
+    document.querySelectorAll("#catButtons button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    loadProducts();
+  }
+
+  async function loadOffers() {
+    const [newRes, popRes] = await Promise.all([
+      api("GET", "/products?tag=NEW&limit=8"),
+      api("GET", "/products?tag=POPULAR&limit=8"),
+    ]);
+    const items = [
+      ...(newRes.data?.data || []),
+      ...(popRes.data?.data || []),
+    ];
+    const scroller = document.getElementById("offersScroller");
+    if (items.length === 0) {
+      scroller.innerHTML = '<div class="empty">No offers yet — add products with a NEW or POPULAR tag.</div>';
+      return;
+    }
+    scroller.innerHTML = items.map(productCard).join("");
+  }
+
+  async function loadProducts() {
+    const qs = activeCategory ? "?category=" + encodeURIComponent(activeCategory) + "&limit=50" : "?limit=50";
+    const { ok, data } = await api("GET", "/products" + qs);
+    const grid = document.getElementById("productGrid");
+    if (!ok || !data.data || data.data.length === 0) {
+      grid.innerHTML = '<div class="empty">No products found. Try the "Add a test product" tool above, or run your seed script.</div>';
+      return;
+    }
+    allProducts = data.data;
+    grid.innerHTML = data.data.map(productCard).join("");
+  }
+
+  function productCard(p) {
+    const sizeOptions = (p.sizes || []).map(s => `<option value="${s}">${s}</option>`).join("");
+    const colorOptions = (p.colors || []).map(c => `<option value="${c}">${c}</option>`).join("");
+    return `
+      <div class="card" data-id="${p._id}">
+        <img src="${(p.images && p.images[0]) || ''}" alt="${p.name}" />
+        <div class="card-body">
+          <span class="brand">${p.brand}</span>
+          <span class="name">${p.name}</span>
+          ${p.tag ? `<span class="tag ${p.tag}">${p.tag}</span>` : ""}
+          <span class="price">${money(p.price)}</span>
+          <div class="selects">
+            ${sizeOptions ? `<select class="sizeSel">${sizeOptions}</select>` : ""}
+            ${colorOptions ? `<select class="colorSel">${colorOptions}</select>` : ""}
+          </div>
+          <span class="stock-note">${p.stock > 0 ? p.stock + " in stock" : "Out of stock"}</span>
+          <div class="card-actions">
+            <button class="primary" ${p.stock < 1 ? "disabled" : ""} onclick="addToCartFromCard(this, '${p._id}')">Add to cart</button>
+            <button class="wish" onclick="addToWishlistFromCard('${p._id}')" title="Save">♥</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function addToCartFromCard(btn, productId) {
+    if (!currentUserId) { toast("Select or create a user first", false); return; }
+    const card = btn.closest(".card");
+    const size = card.querySelector(".sizeSel")?.value;
+    const color = card.querySelector(".colorSel")?.value;
+    const { ok } = await api("POST", "/cart/" + currentUserId, {
+      productId, quantity: 1, selectedSize: size, selectedColor: color,
+    });
+    if (ok) { toast("Added to cart", true); refreshCounts(); }
+  }
+
+  async function addToWishlistFromCard(productId) {
+    if (!currentUserId) { toast("Select or create a user first", false); return; }
+    const { ok } = await api("POST", "/wishlist/" + currentUserId, { productId });
+    if (ok) { toast("Saved to wishlist", true); refreshCounts(); }
+  }
+
+  async function createProduct() {
+    const { ok } = await api("POST", "/products", {
+      name: val("np_name"), brand: val("np_brand"), category: val("np_category"),
+      price: Number(val("np_price")), stock: Number(val("np_stock")),
+      sizes: csv("np_sizes"), colors: csv("np_colors"), tag: val("np_tag") || undefined,
+      images: [`https://placehold.co/500x600/1a1d24/ffffff?text=${encodeURIComponent(val("np_name"))}`],
+    });
+    if (ok) {
+      toast("Product created", true);
+      loadProducts(); loadOffers();
+      document.getElementById("newProductPanel").style.display = "none";
+    }
+  }
+
+  // ---------- cart ----------
+  async function refreshCounts() {
+    if (!currentUserId) {
+      document.getElementById("cartBadge").style.display = "none";
+      document.getElementById("wishBadge").style.display = "none";
+      return;
+    }
+    const [cartRes, wishRes] = await Promise.all([
+      api("GET", "/cart/" + currentUserId),
+      api("GET", "/wishlist/" + currentUserId),
+    ]);
+    const cartCount = cartRes.data?.data?.items?.length || 0;
+    const wishCount = wishRes.data?.data?.products?.length || 0;
+    const cb = document.getElementById("cartBadge"), wb = document.getElementById("wishBadge");
+    cb.textContent = cartCount; cb.style.display = cartCount ? "inline-block" : "none";
+    wb.textContent = wishCount; wb.style.display = wishCount ? "inline-block" : "none";
+  }
+
+  async function loadCart() {
+    const list = document.getElementById("cartList");
+    const summary = document.getElementById("cartSummary");
+    document.getElementById("checkoutPanel").style.display = "none";
+    if (!currentUserId) { list.innerHTML = '<div class="empty">Select a user above.</div>'; summary.style.display = "none"; return; }
+
+    const { ok, data } = await api("GET", "/cart/" + currentUserId);
+    const items = (ok && data.data.items) || [];
+    if (items.length === 0) {
+      list.innerHTML = '<div class="empty">Your cart is empty.</div>';
+      summary.style.display = "none";
+      return;
+    }
+
+    let total = 0;
+    list.innerHTML = items.map(item => {
+      const p = item.product;
+      total += p.price * item.quantity;
+      return `
+        <div class="row-item">
+          <img src="${(p.images && p.images[0]) || ''}" />
+          <div class="info">
+            <div class="name">${p.name}</div>
+            <div class="meta">${item.selectedSize || ""} ${item.selectedColor || ""} · ${money(p.price)} each</div>
+            <div class="qty-ctrl">
+              <button onclick="changeQty('${p._id}', '${item.selectedSize||""}', '${item.selectedColor||""}', ${item.quantity - 1})">−</button>
+              <span>${item.quantity}</span>
+              <button onclick="changeQty('${p._id}', '${item.selectedSize||""}', '${item.selectedColor||""}', ${item.quantity + 1})">+</button>
+            </div>
+          </div>
+          <div class="price-col">${money(p.price * item.quantity)}</div>
+          <button class="remove" onclick="removeCartItem('${p._id}', '${item.selectedSize||""}', '${item.selectedColor||""}')">✕</button>
+        </div>`;
+    }).join("");
+
+    document.getElementById("cartTotal").textContent = money(total);
+    summary.style.display = "block";
+  }
+
+  async function changeQty(productId, size, color, newQty) {
+    if (newQty < 1) { removeCartItem(productId, size, color); return; }
+    const qs = new URLSearchParams({ selectedSize: size, selectedColor: color }).toString();
+    const { ok } = await api("PUT", "/cart/" + currentUserId + "/items/" + productId + "?" + qs, {
+      quantity: newQty, selectedSize: size, selectedColor: color,
+    });
+    if (ok) { loadCart(); refreshCounts(); }
+  }
+
+  async function removeCartItem(productId, size, color) {
+    const qs = new URLSearchParams({ selectedSize: size, selectedColor: color }).toString();
+    const { ok } = await api("DELETE", "/cart/" + currentUserId + "/items/" + productId + "?" + qs);
+    if (ok) { loadCart(); refreshCounts(); toast("Removed", true); }
+  }
+
+  function showCheckout() { document.getElementById("checkoutPanel").style.display = "block"; }
+
+  async function placeOrder() {
+    const { ok } = await api("POST", "/orders/" + currentUserId, {
+      shippingAddress: {
+        fullName: val("co_name"), phone: val("co_phone"),
+        address: val("co_address"), city: val("co_city"), postalCode: val("co_postal"),
+      },
+    });
+    if (ok) {
+      toast("Order placed!", true);
+      document.getElementById("checkoutPanel").style.display = "none";
+      loadCart(); refreshCounts();
+      switchTab("orders");
+    }
+  }
+
+  // ---------- wishlist ----------
+  async function loadWishlist() {
+    const list = document.getElementById("wishlistList");
+    if (!currentUserId) { list.innerHTML = '<div class="empty">Select a user above.</div>'; return; }
+
+    const { ok, data } = await api("GET", "/wishlist/" + currentUserId);
+    const items = (ok && data.data.products) || [];
+    if (items.length === 0) { list.innerHTML = '<div class="empty">Nothing saved yet.</div>'; return; }
+
+    list.innerHTML = items.map(p => `
+      <div class="row-item">
+        <img src="${(p.images && p.images[0]) || ''}" />
+        <div class="info">
+          <div class="name">${p.name}</div>
+          <div class="meta">${p.brand} · ${money(p.price)}</div>
+        </div>
+        <button class="btn secondary" style="font-size:12px" onclick="moveWishToCart('${p._id}')">Add to cart</button>
+        <button class="remove" onclick="removeWishItem('${p._id}')">✕</button>
+      </div>`).join("");
+  }
+
+  async function moveWishToCart(productId) {
+    const { ok } = await api("POST", "/cart/" + currentUserId, { productId, quantity: 1 });
+    if (ok) { toast("Added to cart", true); refreshCounts(); }
+  }
+
+  async function removeWishItem(productId) {
+    const { ok } = await api("DELETE", "/wishlist/" + currentUserId + "/" + productId);
+    if (ok) { loadWishlist(); refreshCounts(); toast("Removed", true); }
+  }
+
+  // ---------- orders ----------
+  async function loadOrders() {
+    const list = document.getElementById("ordersList");
+    if (!currentUserId) { list.innerHTML = '<div class="empty">Select a user above.</div>'; return; }
+
+    const { ok, data } = await api("GET", "/orders/user/" + currentUserId);
+    const orders = (ok && data.data) || [];
+    if (orders.length === 0) { list.innerHTML = '<div class="empty">No orders yet.</div>'; return; }
+
+    list.innerHTML = orders.map(o => `
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span class="status-pill status-${o.status}">${o.status}</span>
+          <span style="font-size:11px;color:var(--muted)">${new Date(o.createdAt).toLocaleString()}</span>
+        </div>
+        ${o.items.map(i => `
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
+            <span>${i.quantity} × ${i.name} ${i.selectedSize ? "(" + i.selectedSize + (i.selectedColor ? ", " + i.selectedColor : "") + ")" : ""}</span>
+            <span>${money(i.price * i.quantity)}</span>
+          </div>`).join("")}
+        <div class="total-line"><span>Total</span><strong>${money(o.totalPrice)}</strong></div>
+        ${(o.status === "pending" || o.status === "confirmed")
+          ? `<button class="btn secondary block" style="margin-top:6px" onclick="cancelOrder('${o._id}')">Cancel order</button>`
+          : ""}
+      </div>`).join("");
+  }
+
+  async function cancelOrder(orderId) {
+    const { ok } = await api("PUT", "/orders/" + orderId + "/cancel");
+    if (ok) { toast("Order cancelled", true); loadOrders(); }
+  }
+</script>
+
+</body>
+</html>
