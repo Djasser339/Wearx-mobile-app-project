@@ -10,7 +10,7 @@ const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
 const cartRoutes = require("./routes/cartRoutes");
-const wishlistRoutes = require("./routes/wishlistRoutes");
+const wishlistRoutes = require("./routes/Whishlistroutes");
 const orderRoutes = require("./routes/orderRoutes");
 
 // Connect to MongoDB before the app starts handling requests

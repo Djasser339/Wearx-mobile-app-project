@@ -2,557 +2,429 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Men's Store — Test App</title>
+<title>Auth Tester</title>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --border: #2a2e38;
     --text: #e6e8ec; --muted: #9aa1ad; --accent: #4f8cff;
-    --ok: #2fbf71; --err: #ef5a5a; --gold: #e0b84f;
+    --ok: #2fbf71; --err: #ef5a5a;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
-  header { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   header h1 { font-size: 15px; margin: 0; white-space: nowrap; }
-  header input, header select { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 6px; font-size: 12px; }
-  #baseUrl { width: 200px; }
-  .tabbar { display: flex; gap: 4px; margin-left: auto; }
-  .tabbar button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
-  .tabbar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .badge { background: var(--accent); color: #fff; border-radius: 999px; font-size: 10px; padding: 1px 6px; margin-left: 4px; }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 7px 9px; border-radius: 6px; font-size: 12px; flex: 1; min-width: 200px; }
+  .layout { display: flex; min-height: calc(100vh - 56px); }
+  nav { width: 150px; border-right: 1px solid var(--border); padding: 12px; flex-shrink: 0; }
+  nav button { display: block; width: 100%; text-align: left; padding: 9px 10px; margin-bottom: 4px; background: transparent; border: none; color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 13px; }
+  nav button.active { background: var(--accent); color: #fff; }
+  nav button:hover:not(.active) { background: #1f232c; color: var(--text); }
+  main { flex: 1; padding: 20px; overflow-y: auto; }
   .tab { display: none; }
   .tab.active { display: block; }
-  h2.section { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 10px; }
-  .scroller { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
-  .cats { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
-  .cats button { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
-  .cats button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; width: 200px; flex-shrink: 0; }
-  .grid .card { width: auto; }
-  .card img { width: 100%; aspect-ratio: 4/5; object-fit: cover; background: #0f1115; }
-  .card-body { padding: 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-  .card-body .brand { font-size: 10px; color: var(--muted); text-transform: uppercase; }
-  .card-body .name { font-size: 13px; font-weight: 600; line-height: 1.3; }
-  .card-body .price { font-size: 13px; color: var(--gold); font-weight: 600; }
-  .tag { display: inline-block; font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: #fff; width: fit-content; }
-  .tag.POPULAR { background: var(--gold); color: #000; }
-  .selects { display: flex; gap: 4px; }
-  .selects select { flex: 1; font-size: 11px; padding: 4px; background: #0f1115; border: 1px solid var(--border); color: var(--text); border-radius: 5px; }
-  .card-actions { display: flex; gap: 6px; margin-top: auto; }
-  .card-actions button { flex: 1; padding: 6px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border); background: #0f1115; color: var(--text); cursor: pointer; }
-  .card-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .card-actions button.wish { flex: 0 0 34px; }
-  .card-actions button.wish.active { color: var(--err); border-color: var(--err); }
-  .stock-note { font-size: 10px; color: var(--muted); }
-
-  .row-item { display: flex; gap: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; align-items: center; }
-  .row-item img { width: 60px; height: 70px; object-fit: cover; border-radius: 6px; background: #0f1115; }
-  .row-item .info { flex: 1; }
-  .row-item .info .name { font-size: 13px; font-weight: 600; }
-  .row-item .info .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .qty-ctrl { display: flex; align-items: center; gap: 6px; }
-  .qty-ctrl button { width: 26px; height: 26px; border-radius: 5px; border: 1px solid var(--border); background: #0f1115; color: var(--text); cursor: pointer; }
-  .row-item .price-col { font-size: 13px; color: var(--gold); font-weight: 600; min-width: 70px; text-align: right; }
-  .row-item .remove { background: none; border: none; color: var(--err); cursor: pointer; font-size: 16px; }
-
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-  .panel h3 { margin: 0 0 10px; font-size: 13px; }
-  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-  .field label { font-size: 11px; color: var(--muted); }
-  .field input, .field select { background: #0f1115; border: 1px solid var(--border); color: var(--text); padding: 7px 8px; border-radius: 6px; font-size: 13px; }
-  .field-row { display: flex; gap: 8px; }
-  .field-row .field { flex: 1; }
-  .btn { background: var(--accent); color: #fff; border: none; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-  .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-  .btn.block { width: 100%; }
-  .total-line { display: flex; justify-content: space-between; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--border); margin-top: 6px; }
-  .total-line strong { color: var(--gold); }
-  .empty { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
-  .status-pill { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; }
-  .status-pending { background: #4a3d1f; color: #e0b84f; }
-  .status-confirmed { background: #1f3a4a; color: #6fb8ef; }
-  .status-shipped { background: #2a2650; color: #a99bf0; }
-  .status-delivered { background: #1c3d2c; color: #2fbf71; }
-  .status-cancelled { background: #3d1f1f; color: #ef5a5a; }
-  details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
-  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border); padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 100; }
-  #toast.ok { border-color: var(--ok); color: var(--ok); }
-  #toast.err { border-color: var(--err); color: var(--err); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 4px; font-size: 14px; }
+  .card p.hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row label { flex: 1; min-width: 140px; display: flex; flex-direction: column; font-size: 11px; color: var(--muted); gap: 4px; }
+  input, select { background: #0f1115; border: 1px solid var(--border); color: var(--text); padding: 7px 8px; border-radius: 5px; font-size: 13px; font-family: inherit; }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+  button.run { background: var(--accent); color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  button.run:hover { opacity: 0.9; }
+  button.run.danger { background: var(--err); }
+  .method { font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #0f1115; color: var(--muted); }
+  .tokenbox { display: flex; align-items: center; gap: 8px; }
+  #tokenState { font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 999px; }
+  #tokenState.set { background: rgba(47,191,113,0.15); color: var(--ok); }
+  #tokenState.unset { background: #1f232c; color: var(--muted); }
+  .noauth { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-left: auto; }
+  #responsePanel { position: sticky; top: 20px; }
+  #status { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 5px; display: inline-block; margin-bottom: 8px; }
+  #status.ok { background: rgba(47,191,113,0.15); color: var(--ok); }
+  #status.err { background: rgba(239,90,90,0.15); color: var(--err); }
+  #status.idle { background: #1f232c; color: var(--muted); }
+  pre#respBody { background: #0f1115; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; }
+  #decoded { background: #0f1115; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 11px; margin-top: 8px; }
+  #decoded div { display: flex; justify-content: space-between; padding: 2px 0; }
+  #decoded .k { color: var(--muted); }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🛍️ Men's Store</h1>
-  <input id="baseUrl" value="http://localhost:5000/api" title="API base URL" />
-  <select id="userSelect" title="Current user"><option value="">Loading users...</option></select>
-  <button class="btn secondary" style="padding:6px 10px;font-size:12px" onclick="showNewUser()">+ New user</button>
-  <div class="tabbar">
-    <button class="tabbtn active" data-tab="shop" onclick="switchTab('shop')">Shop</button>
-    <button class="tabbtn" data-tab="cart" onclick="switchTab('cart')">Cart <span id="cartBadge" class="badge" style="display:none">0</span></button>
-    <button class="tabbtn" data-tab="wishlist" onclick="switchTab('wishlist')">Wishlist <span id="wishBadge" class="badge" style="display:none">0</span></button>
-    <button class="tabbtn" data-tab="orders" onclick="switchTab('orders')">Orders</button>
+  <h1>🔑 Auth Tester</h1>
+  <input id="baseUrl" value="http://localhost:5000/api" />
+  <div class="tokenbox">
+    <span id="tokenState" class="unset">No token</span>
   </div>
 </header>
 
-<main>
+<div class="layout">
+  <nav>
+    <button class="navbtn active" data-tab="auth">Auth</button>
+    <button class="navbtn" data-tab="cart">Cart</button>
+    <button class="navbtn" data-tab="wishlist">Wishlist</button>
+    <button class="navbtn" data-tab="orders">Orders</button>
+    <button class="navbtn" data-tab="products">Products (admin)</button>
+    <button class="navbtn" data-tab="users">Users (admin)</button>
+  </nav>
 
-  <!-- ============ SHOP ============ -->
-  <div class="tab active" id="tab-shop">
+  <main>
+    <!-- ============ AUTH ============ -->
+    <section class="tab active" id="tab-auth">
 
-    <div class="panel" id="newUserPanel" style="display:none">
-      <h3>Create a test user</h3>
-      <div class="field-row">
-        <div class="field"><label>Name</label><input id="nu_name" value="Test User" /></div>
-        <div class="field"><label>Email</label><input id="nu_email" value="" placeholder="e.g. test1@mail.com" /></div>
-      </div>
-      <button class="btn" onclick="createUser()">Create & select</button>
-    </div>
-
-    <div class="panel" id="newProductPanel" style="display:none">
-      <h3>Add a test product</h3>
-      <div class="field-row">
-        <div class="field"><label>Name</label><input id="np_name" value="New Item" /></div>
-        <div class="field"><label>Brand</label><input id="np_brand" value="Generic" /></div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label>Category</label>
-          <select id="np_category">
-            <option>T-Shirts</option><option>Shirts</option><option>Pants</option>
-            <option>Shorts</option><option>Jackets</option><option>Shoes</option><option>Accessories</option>
-          </select>
+      <div class="card">
+        <h3><span class="method">POST</span> Register</h3>
+        <p class="hint">/auth/register — creates a "customer" (or "seller" if you type it below). "admin" is always downgraded server-side.</p>
+        <div class="row">
+          <label>Name <input id="r_name" value="Test User" /></label>
+          <label>Email <input id="r_email" value="test1@mail.com" /></label>
+          <label>Password <input id="r_password" value="password123" /></label>
+          <label>Role attempt
+            <select id="r_role">
+              <option value="customer">customer</option>
+              <option value="seller">seller</option>
+              <option value="admin">admin (try to sneak it in)</option>
+            </select>
+          </label>
         </div>
-        <div class="field"><label>Price</label><input id="np_price" type="number" value="3000" /></div>
-        <div class="field"><label>Stock</label><input id="np_stock" type="number" value="10" /></div>
+        <div class="actions"><button class="run" onclick="register()">Run</button></div>
       </div>
-      <div class="field-row">
-        <div class="field"><label>Sizes (comma sep)</label><input id="np_sizes" value="S, M, L" /></div>
-        <div class="field"><label>Colors (comma sep)</label><input id="np_colors" value="Black, White" /></div>
-        <div class="field"><label>Tag</label>
-          <select id="np_tag"><option value="">(none)</option><option value="NEW">NEW</option><option value="POPULAR">POPULAR</option></select>
+
+      <div class="card">
+        <h3><span class="method">POST</span> Login</h3>
+        <p class="hint">/auth/login — on success, the token is stored and used automatically everywhere below.</p>
+        <div class="row">
+          <label>Email <input id="l_email" value="test1@mail.com" /></label>
+          <label>Password <input id="l_password" value="password123" /></label>
+        </div>
+        <div class="actions">
+          <button class="run" onclick="login()">Run</button>
+          <button class="run danger" onclick="logout()">Clear token</button>
         </div>
       </div>
-      <button class="btn" onclick="createProduct()">Add product</button>
-    </div>
 
-    <details style="margin-bottom: 10px">
-      <summary>Testing tools (create user / product manually)</summary>
-      <div style="margin-top:8px">
-        <button class="btn secondary" style="font-size:12px;padding:6px 10px" onclick="toggle('newUserPanel')">Toggle new user form</button>
-        <button class="btn secondary" style="font-size:12px;padding:6px 10px" onclick="toggle('newProductPanel')">Toggle new product form</button>
+      <div class="card">
+        <h3>Decoded token</h3>
+        <p class="hint">Read directly from the JWT payload — for inspection only, not a real signature check.</p>
+        <div id="decoded">No token stored yet.</div>
       </div>
-    </details>
 
-    <h2 class="section">Offers</h2>
-    <div class="scroller" id="offersScroller"><div class="empty">Loading...</div></div>
-
-    <h2 class="section">Browse</h2>
-    <div class="cats" id="catButtons"></div>
-    <div class="grid" id="productGrid"><div class="empty">Loading products...</div></div>
-  </div>
-
-  <!-- ============ CART ============ -->
-  <div class="tab" id="tab-cart">
-    <h2 class="section">Your cart</h2>
-    <div id="cartList"><div class="empty">Select a user above to view their cart.</div></div>
-    <div class="panel" id="cartSummary" style="display:none">
-      <div class="total-line"><span>Total</span><strong id="cartTotal">0 DA</strong></div>
-      <button class="btn block" onclick="showCheckout()">Checkout</button>
-    </div>
-
-    <div class="panel" id="checkoutPanel" style="display:none">
-      <h3>Shipping details</h3>
-      <div class="field-row">
-        <div class="field"><label>Full name</label><input id="co_name" value="Ahmed Benali" /></div>
-        <div class="field"><label>Phone</label><input id="co_phone" value="0550123456" /></div>
+      <div class="card">
+        <h3><span class="method">GET</span> /auth/me (protected)</h3>
+        <p class="hint">Should return your user data with a token, and 401 without one.</p>
+        <div class="actions">
+          <button class="run" onclick="callApi('GET','/auth/me', undefined, true)">Run with token</button>
+          <button class="run" onclick="callApi('GET','/auth/me', undefined, false)">Run WITHOUT token</button>
+        </div>
       </div>
-      <div class="field-row">
-        <div class="field"><label>Address</label><input id="co_address" value="12 Rue Didouche Mourad" /></div>
-        <div class="field"><label>City</label><input id="co_city" value="Algiers" /></div>
-        <div class="field"><label>Postal code</label><input id="co_postal" value="16000" /></div>
+    </section>
+
+    <!-- ============ CART ============ -->
+    <section class="tab" id="tab-cart">
+      <div class="card">
+        <h3><span class="method">GET</span> View my cart</h3>
+        <p class="hint">/cart — identifies you from the token, no id in the URL anymore.</p>
+        <div class="actions"><button class="run" onclick="callApi('GET','/cart')">Run</button></div>
       </div>
-      <button class="btn block" onclick="placeOrder()">Place order</button>
+
+      <div class="card">
+        <h3><span class="method">POST</span> Add to cart</h3>
+        <p class="hint">/cart</p>
+        <div class="row">
+          <label>Product ID <input id="c_productId" placeholder="paste a product id" /></label>
+          <label>Quantity <input id="c_qty" type="number" value="1" /></label>
+          <label>Size <input id="c_size" value="M" /></label>
+          <label>Color <input id="c_color" value="Black" /></label>
+        </div>
+        <div class="actions"><button class="run" onclick="addToCart()">Run</button></div>
+      </div>
+
+      <div class="card">
+        <h3>Update / Remove item / Clear cart</h3>
+        <p class="hint">/cart/items/:productId and /cart</p>
+        <div class="row"><label>New quantity <input id="c_update_qty" type="number" value="2" /></label></div>
+        <div class="actions">
+          <button class="run" onclick="updateCartItem()">PUT update quantity</button>
+          <button class="run danger" onclick="removeCartItem()">DELETE this item</button>
+          <button class="run danger" onclick="callApi('DELETE','/cart')">DELETE clear cart</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ WISHLIST ============ -->
+    <section class="tab" id="tab-wishlist">
+      <div class="card">
+        <h3><span class="method">GET</span> View my wishlist</h3>
+        <p class="hint">/wishlist</p>
+        <div class="actions"><button class="run" onclick="callApi('GET','/wishlist')">Run</button></div>
+      </div>
+      <div class="card">
+        <h3><span class="method">POST</span> Add to wishlist</h3>
+        <p class="hint">/wishlist</p>
+        <div class="row"><label>Product ID <input id="w_productId" placeholder="paste a product id" /></label></div>
+        <div class="actions"><button class="run" onclick="addToWishlist()">Run</button></div>
+      </div>
+      <div class="card">
+        <h3>Remove item / Clear wishlist</h3>
+        <p class="hint">/wishlist/:productId and /wishlist</p>
+        <div class="actions">
+          <button class="run danger" onclick="removeWishlistItem()">DELETE this item</button>
+          <button class="run danger" onclick="callApi('DELETE','/wishlist')">DELETE clear wishlist</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ORDERS ============ -->
+    <section class="tab" id="tab-orders">
+      <div class="card">
+        <h3><span class="method">POST</span> Checkout</h3>
+        <p class="hint">/orders — creates an order from your current cart (add items in the Cart tab first).</p>
+        <div class="row">
+          <label>Full name <input id="o_fullName" value="Ahmed Benali" /></label>
+          <label>Phone <input id="o_phone" value="0550123456" /></label>
+        </div>
+        <div class="row">
+          <label>Address <input id="o_address" value="12 Rue Didouche Mourad" /></label>
+          <label>City <input id="o_city" value="Algiers" /></label>
+          <label>Postal code <input id="o_postal" value="16000" /></label>
+        </div>
+        <div class="actions"><button class="run" onclick="checkout()">Run</button></div>
+      </div>
+
+      <div class="card">
+        <h3>List orders</h3>
+        <p class="hint">/orders (all — check whether a non-admin can see everyone's) and /orders/user (mine only)</p>
+        <div class="actions">
+          <button class="run" onclick="callApi('GET','/orders')">GET /orders (all)</button>
+          <button class="run" onclick="callApi('GET','/orders/user')">GET /orders/user (mine)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Get one / Update status / Cancel</h3>
+        <p class="hint">/orders/:id, /orders/:id/status, /orders/:id/cancel — try an order ID that belongs to a DIFFERENT user to test the 403 check.</p>
+        <div class="row"><label>Order ID <input id="o_id" placeholder="paste an order id" /></label></div>
+        <div class="row">
+          <label>New status
+            <select id="o_new_status">
+              <option value="confirmed">confirmed</option>
+              <option value="shipped">shipped</option>
+              <option value="delivered">delivered</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="run" onclick="callApi('GET','/orders/'+val('o_id'))">GET</button>
+          <button class="run" onclick="callApi('PUT','/orders/'+val('o_id')+'/status', {status: val('o_new_status')})">PUT status</button>
+          <button class="run danger" onclick="callApi('PUT','/orders/'+val('o_id')+'/cancel')">PUT cancel</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PRODUCTS (admin) ============ -->
+    <section class="tab" id="tab-products">
+      <div class="card">
+        <h3><span class="method">GET</span> List products</h3>
+        <p class="hint">/products — should work with NO token (public).</p>
+        <div class="actions"><button class="run" onclick="callApi('GET','/products', undefined, false)">Run WITHOUT token</button></div>
+      </div>
+
+      <div class="card">
+        <h3><span class="method">POST</span> Create product</h3>
+        <p class="hint">/products — requires admin or seller token. Expect 401 with no token, 403 as a customer, 201 as admin/seller.</p>
+        <div class="row">
+          <label>Name <input id="p_name" value="Test Product" /></label>
+          <label>Brand <input id="p_brand" value="TestBrand" /></label>
+          <label>Category
+            <select id="p_category"><option>T-Shirts</option><option>Shirts</option><option>Pants</option><option>Shorts</option><option>Jackets</option><option>Shoes</option><option>Accessories</option></select>
+          </label>
+          <label>Price <input id="p_price" type="number" value="2500" /></label>
+        </div>
+        <div class="actions">
+          <button class="run" onclick="createProduct()">Run with token</button>
+          <button class="run" onclick="createProduct(false)">Run WITHOUT token</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Update / Delete product</h3>
+        <p class="hint">/products/:id — admin/seller only.</p>
+        <div class="row"><label>Product ID <input id="p_id" placeholder="paste a product id" /></label></div>
+        <div class="actions">
+          <button class="run" onclick="callApi('PUT','/products/'+val('p_id'), {stock: 5})">PUT (set stock 5)</button>
+          <button class="run danger" onclick="callApi('DELETE','/products/'+val('p_id'))">DELETE</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ USERS (admin) ============ -->
+    <section class="tab" id="tab-users">
+      <div class="card">
+        <h3><span class="method">GET</span> List all users</h3>
+        <p class="hint">/users — admin only. Expect 401 with no token, 403 as customer, 200 as admin.</p>
+        <div class="actions">
+          <button class="run" onclick="callApi('GET','/users')">Run with token</button>
+          <button class="run" onclick="callApi('GET','/users', undefined, false)">Run WITHOUT token</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Get / Update / Delete one user</h3>
+        <p class="hint">/users/:id — admin only.</p>
+        <div class="row"><label>User ID <input id="u_id" placeholder="paste a user id" /></label></div>
+        <div class="actions">
+          <button class="run" onclick="callApi('GET','/users/'+val('u_id'))">GET</button>
+          <button class="run" onclick="callApi('PUT','/users/'+val('u_id'), {name:'Updated Name'})">PUT</button>
+          <button class="run danger" onclick="callApi('DELETE','/users/'+val('u_id'))">DELETE</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="card" id="responsePanel">
+      <h3>Response</h3>
+      <div id="status" class="idle">No request sent yet</div>
+      <pre id="respBody">—</pre>
     </div>
-  </div>
-
-  <!-- ============ WISHLIST ============ -->
-  <div class="tab" id="tab-wishlist">
-    <h2 class="section">Saved items</h2>
-    <div id="wishlistList"><div class="empty">Select a user above to view their wishlist.</div></div>
-  </div>
-
-  <!-- ============ ORDERS ============ -->
-  <div class="tab" id="tab-orders">
-    <h2 class="section">Order history</h2>
-    <div id="ordersList"><div class="empty">Select a user above to view their orders.</div></div>
-  </div>
-
-</main>
-
-<div id="toast"></div>
+  </main>
+</div>
 
 <script>
-  let currentUserId = "";
-  let allProducts = [];
-  let activeCategory = "";
-  const CATEGORIES = ["T-Shirts","Shirts","Pants","Shorts","Jackets","Shoes","Accessories"];
+  let token = null;
 
-  const baseUrl = () => document.getElementById("baseUrl").value.replace(/\/$/, "");
+  // ---------- tabs ----------
+  document.querySelectorAll(".navbtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".navbtn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    });
+  });
+
   const val = (id) => document.getElementById(id).value;
-  const csv = (id) => val(id).split(",").map(s => s.trim()).filter(Boolean);
-  const toggle = (id) => { const el = document.getElementById(id); el.style.display = el.style.display === "none" ? "block" : "none"; };
-  const money = (n) => Number(n).toLocaleString() + " DA";
+  const baseUrl = () => document.getElementById("baseUrl").value.replace(/\/$/, "");
 
-  function toast(msg, ok) {
-    const t = document.getElementById("toast");
-    t.textContent = msg;
-    t.className = ok ? "ok" : "err";
-    t.style.display = "block";
-    clearTimeout(t._timer);
-    t._timer = setTimeout(() => (t.style.display = "none"), 2500);
+  // ---------- token handling ----------
+  function setToken(newToken) {
+    token = newToken;
+    const el = document.getElementById("tokenState");
+    if (token) {
+      el.textContent = "Token set";
+      el.className = "set";
+    } else {
+      el.textContent = "No token";
+      el.className = "unset";
+    }
+    renderDecoded();
+  }
+  function logout() { setToken(null); }
+
+  function renderDecoded() {
+    const box = document.getElementById("decoded");
+    if (!token) { box.textContent = "No token stored yet."; return; }
+    try {
+      const payloadB64 = token.split(".")[1];
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+      const rows = [
+        ["user id", payload.id],
+        ["issued at", payload.iat ? new Date(payload.iat * 1000).toLocaleString() : "—"],
+        ["expires", payload.exp ? new Date(payload.exp * 1000).toLocaleString() : "—"],
+      ];
+      box.innerHTML = rows.map(([k, v]) => `<div><span class="k">${k}</span><span>${v}</span></div>`).join("");
+    } catch {
+      box.textContent = "Could not decode token.";
+    }
   }
 
   // ---------- core request helper ----------
-  async function api(method, path, body) {
+  // sendToken: true = attach it if we have one (default), false = deliberately omit it (to test 401s)
+  async function callApi(method, path, body, sendToken = true) {
+    const statusEl = document.getElementById("status");
+    const bodyEl = document.getElementById("respBody");
+    statusEl.className = "idle";
+    statusEl.textContent = "Sending " + method + " " + path + " ...";
+    bodyEl.textContent = "—";
+
     try {
       const options = { method, headers: {} };
+      if (sendToken && token) options.headers["Authorization"] = "Bearer " + token;
       if (body !== undefined) {
         options.headers["Content-Type"] = "application/json";
         options.body = JSON.stringify(body);
       }
+
       const res = await fetch(baseUrl() + path, options);
       const text = await res.text();
       let data;
-      try { data = JSON.parse(text); } catch { data = { success: false, message: text }; }
+      try { data = JSON.parse(text); } catch { data = text; }
 
-      if (!res.ok) {
-        toast(data.message || (method + " " + path + " failed (" + res.status + ")"), false);
-      }
-      return { ok: res.ok, status: res.status, data };
+      statusEl.className = res.ok ? "ok" : "err";
+      const authNote = sendToken ? (token ? " (with token)" : " (no token stored)") : " (token withheld)";
+      statusEl.textContent = method + " " + path + authNote + " → " + res.status + " " + res.statusText;
+      bodyEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      return data;
     } catch (err) {
-      toast("Network error — is the server running and CORS enabled?", false);
-      return { ok: false, status: 0, data: null };
+      statusEl.className = "err";
+      statusEl.textContent = "Network error (is the server running? is CORS enabled?)";
+      bodyEl.textContent = String(err);
+      return null;
     }
   }
 
-  // ---------- tabs ----------
-  function switchTab(name) {
-    document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
-    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-    document.getElementById("tab-" + name).classList.add("active");
-    if (name === "cart") loadCart();
-    if (name === "wishlist") loadWishlist();
-    if (name === "orders") loadOrders();
+  // ---------- auth ----------
+  async function register() {
+    const data = await callApi("POST", "/auth/register", {
+      name: val("r_name"), email: val("r_email"), password: val("r_password"), role: val("r_role"),
+    }, false);
+    if (data && data.token) setToken(data.token);
   }
 
-  function showNewUser() { toggle("newUserPanel"); }
-
-  // ---------- users ----------
-  async function loadUsers() {
-    const { ok, data } = await api("GET", "/users");
-    const select = document.getElementById("userSelect");
-    select.innerHTML = "";
-    if (!ok || !data.data || data.data.length === 0) {
-      select.innerHTML = '<option value="">No users yet — create one</option>';
-      return;
-    }
-    data.data.forEach(u => {
-      const opt = document.createElement("option");
-      opt.value = u._id;
-      opt.textContent = u.name + " (" + u.email + ")";
-      select.appendChild(opt);
-    });
-    currentUserId = select.value;
-    onUserChanged();
-  }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("userSelect").addEventListener("change", (e) => {
-      currentUserId = e.target.value;
-      onUserChanged();
-    });
-    loadUsers();
-    loadCategories();
-    loadOffers();
-    loadProducts();
-  });
-
-  function onUserChanged() {
-    refreshCounts();
-  }
-
-  async function createUser() {
-    const email = val("nu_email") || ("test" + Date.now() + "@mail.com");
-    const { ok, data } = await api("POST", "/users", {
-      name: val("nu_name"), email, password: "password123", role: "customer",
-    });
-    if (ok) {
-      toast("User created", true);
-      await loadUsers();
-      document.getElementById("userSelect").value = data.data._id;
-      currentUserId = data.data._id;
-      onUserChanged();
-      document.getElementById("newUserPanel").style.display = "none";
-    }
-  }
-
-  // ---------- products / shop ----------
-  function loadCategories() {
-    const wrap = document.getElementById("catButtons");
-    wrap.innerHTML = "";
-    const all = document.createElement("button");
-    all.textContent = "All"; all.className = "active";
-    all.onclick = () => selectCategory("", all);
-    wrap.appendChild(all);
-    CATEGORIES.forEach(cat => {
-      const b = document.createElement("button");
-      b.textContent = cat;
-      b.onclick = () => selectCategory(cat, b);
-      wrap.appendChild(b);
-    });
-  }
-  function selectCategory(cat, btn) {
-    activeCategory = cat;
-    document.querySelectorAll("#catButtons button").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    loadProducts();
-  }
-
-  async function loadOffers() {
-    const [newRes, popRes] = await Promise.all([
-      api("GET", "/products?tag=NEW&limit=8"),
-      api("GET", "/products?tag=POPULAR&limit=8"),
-    ]);
-    const items = [
-      ...(newRes.data?.data || []),
-      ...(popRes.data?.data || []),
-    ];
-    const scroller = document.getElementById("offersScroller");
-    if (items.length === 0) {
-      scroller.innerHTML = '<div class="empty">No offers yet — add products with a NEW or POPULAR tag.</div>';
-      return;
-    }
-    scroller.innerHTML = items.map(productCard).join("");
-  }
-
-  async function loadProducts() {
-    const qs = activeCategory ? "?category=" + encodeURIComponent(activeCategory) + "&limit=50" : "?limit=50";
-    const { ok, data } = await api("GET", "/products" + qs);
-    const grid = document.getElementById("productGrid");
-    if (!ok || !data.data || data.data.length === 0) {
-      grid.innerHTML = '<div class="empty">No products found. Try the "Add a test product" tool above, or run your seed script.</div>';
-      return;
-    }
-    allProducts = data.data;
-    grid.innerHTML = data.data.map(productCard).join("");
-  }
-
-  function productCard(p) {
-    const sizeOptions = (p.sizes || []).map(s => `<option value="${s}">${s}</option>`).join("");
-    const colorOptions = (p.colors || []).map(c => `<option value="${c}">${c}</option>`).join("");
-    return `
-      <div class="card" data-id="${p._id}">
-        <img src="${(p.images && p.images[0]) || ''}" alt="${p.name}" />
-        <div class="card-body">
-          <span class="brand">${p.brand}</span>
-          <span class="name">${p.name}</span>
-          ${p.tag ? `<span class="tag ${p.tag}">${p.tag}</span>` : ""}
-          <span class="price">${money(p.price)}</span>
-          <div class="selects">
-            ${sizeOptions ? `<select class="sizeSel">${sizeOptions}</select>` : ""}
-            ${colorOptions ? `<select class="colorSel">${colorOptions}</select>` : ""}
-          </div>
-          <span class="stock-note">${p.stock > 0 ? p.stock + " in stock" : "Out of stock"}</span>
-          <div class="card-actions">
-            <button class="primary" ${p.stock < 1 ? "disabled" : ""} onclick="addToCartFromCard(this, '${p._id}')">Add to cart</button>
-            <button class="wish" onclick="addToWishlistFromCard('${p._id}')" title="Save">♥</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  async function addToCartFromCard(btn, productId) {
-    if (!currentUserId) { toast("Select or create a user first", false); return; }
-    const card = btn.closest(".card");
-    const size = card.querySelector(".sizeSel")?.value;
-    const color = card.querySelector(".colorSel")?.value;
-    const { ok } = await api("POST", "/cart/" + currentUserId, {
-      productId, quantity: 1, selectedSize: size, selectedColor: color,
-    });
-    if (ok) { toast("Added to cart", true); refreshCounts(); }
-  }
-
-  async function addToWishlistFromCard(productId) {
-    if (!currentUserId) { toast("Select or create a user first", false); return; }
-    const { ok } = await api("POST", "/wishlist/" + currentUserId, { productId });
-    if (ok) { toast("Saved to wishlist", true); refreshCounts(); }
-  }
-
-  async function createProduct() {
-    const { ok } = await api("POST", "/products", {
-      name: val("np_name"), brand: val("np_brand"), category: val("np_category"),
-      price: Number(val("np_price")), stock: Number(val("np_stock")),
-      sizes: csv("np_sizes"), colors: csv("np_colors"), tag: val("np_tag") || undefined,
-      images: [`https://placehold.co/500x600/1a1d24/ffffff?text=${encodeURIComponent(val("np_name"))}`],
-    });
-    if (ok) {
-      toast("Product created", true);
-      loadProducts(); loadOffers();
-      document.getElementById("newProductPanel").style.display = "none";
-    }
+  async function login() {
+    const data = await callApi("POST", "/auth/login", {
+      email: val("l_email"), password: val("l_password"),
+    }, false);
+    if (data && data.token) setToken(data.token);
   }
 
   // ---------- cart ----------
-  async function refreshCounts() {
-    if (!currentUserId) {
-      document.getElementById("cartBadge").style.display = "none";
-      document.getElementById("wishBadge").style.display = "none";
-      return;
-    }
-    const [cartRes, wishRes] = await Promise.all([
-      api("GET", "/cart/" + currentUserId),
-      api("GET", "/wishlist/" + currentUserId),
-    ]);
-    const cartCount = cartRes.data?.data?.items?.length || 0;
-    const wishCount = wishRes.data?.data?.products?.length || 0;
-    const cb = document.getElementById("cartBadge"), wb = document.getElementById("wishBadge");
-    cb.textContent = cartCount; cb.style.display = cartCount ? "inline-block" : "none";
-    wb.textContent = wishCount; wb.style.display = wishCount ? "inline-block" : "none";
-  }
-
-  async function loadCart() {
-    const list = document.getElementById("cartList");
-    const summary = document.getElementById("cartSummary");
-    document.getElementById("checkoutPanel").style.display = "none";
-    if (!currentUserId) { list.innerHTML = '<div class="empty">Select a user above.</div>'; summary.style.display = "none"; return; }
-
-    const { ok, data } = await api("GET", "/cart/" + currentUserId);
-    const items = (ok && data.data.items) || [];
-    if (items.length === 0) {
-      list.innerHTML = '<div class="empty">Your cart is empty.</div>';
-      summary.style.display = "none";
-      return;
-    }
-
-    let total = 0;
-    list.innerHTML = items.map(item => {
-      const p = item.product;
-      total += p.price * item.quantity;
-      return `
-        <div class="row-item">
-          <img src="${(p.images && p.images[0]) || ''}" />
-          <div class="info">
-            <div class="name">${p.name}</div>
-            <div class="meta">${item.selectedSize || ""} ${item.selectedColor || ""} · ${money(p.price)} each</div>
-            <div class="qty-ctrl">
-              <button onclick="changeQty('${p._id}', '${item.selectedSize||""}', '${item.selectedColor||""}', ${item.quantity - 1})">−</button>
-              <span>${item.quantity}</span>
-              <button onclick="changeQty('${p._id}', '${item.selectedSize||""}', '${item.selectedColor||""}', ${item.quantity + 1})">+</button>
-            </div>
-          </div>
-          <div class="price-col">${money(p.price * item.quantity)}</div>
-          <button class="remove" onclick="removeCartItem('${p._id}', '${item.selectedSize||""}', '${item.selectedColor||""}')">✕</button>
-        </div>`;
-    }).join("");
-
-    document.getElementById("cartTotal").textContent = money(total);
-    summary.style.display = "block";
-  }
-
-  async function changeQty(productId, size, color, newQty) {
-    if (newQty < 1) { removeCartItem(productId, size, color); return; }
-    const qs = new URLSearchParams({ selectedSize: size, selectedColor: color }).toString();
-    const { ok } = await api("PUT", "/cart/" + currentUserId + "/items/" + productId + "?" + qs, {
-      quantity: newQty, selectedSize: size, selectedColor: color,
+  function addToCart() {
+    return callApi("POST", "/cart", {
+      productId: val("c_productId"), quantity: Number(val("c_qty")),
+      selectedSize: val("c_size"), selectedColor: val("c_color"),
     });
-    if (ok) { loadCart(); refreshCounts(); }
   }
-
-  async function removeCartItem(productId, size, color) {
-    const qs = new URLSearchParams({ selectedSize: size, selectedColor: color }).toString();
-    const { ok } = await api("DELETE", "/cart/" + currentUserId + "/items/" + productId + "?" + qs);
-    if (ok) { loadCart(); refreshCounts(); toast("Removed", true); }
-  }
-
-  function showCheckout() { document.getElementById("checkoutPanel").style.display = "block"; }
-
-  async function placeOrder() {
-    const { ok } = await api("POST", "/orders/" + currentUserId, {
-      shippingAddress: {
-        fullName: val("co_name"), phone: val("co_phone"),
-        address: val("co_address"), city: val("co_city"), postalCode: val("co_postal"),
-      },
+  function updateCartItem() {
+    const qs = new URLSearchParams({ selectedSize: val("c_size"), selectedColor: val("c_color") }).toString();
+    return callApi("PUT", "/cart/items/" + val("c_productId") + "?" + qs, {
+      quantity: Number(val("c_update_qty")), selectedSize: val("c_size"), selectedColor: val("c_color"),
     });
-    if (ok) {
-      toast("Order placed!", true);
-      document.getElementById("checkoutPanel").style.display = "none";
-      loadCart(); refreshCounts();
-      switchTab("orders");
-    }
+  }
+  function removeCartItem() {
+    const qs = new URLSearchParams({ selectedSize: val("c_size"), selectedColor: val("c_color") }).toString();
+    return callApi("DELETE", "/cart/items/" + val("c_productId") + "?" + qs);
   }
 
   // ---------- wishlist ----------
-  async function loadWishlist() {
-    const list = document.getElementById("wishlistList");
-    if (!currentUserId) { list.innerHTML = '<div class="empty">Select a user above.</div>'; return; }
-
-    const { ok, data } = await api("GET", "/wishlist/" + currentUserId);
-    const items = (ok && data.data.products) || [];
-    if (items.length === 0) { list.innerHTML = '<div class="empty">Nothing saved yet.</div>'; return; }
-
-    list.innerHTML = items.map(p => `
-      <div class="row-item">
-        <img src="${(p.images && p.images[0]) || ''}" />
-        <div class="info">
-          <div class="name">${p.name}</div>
-          <div class="meta">${p.brand} · ${money(p.price)}</div>
-        </div>
-        <button class="btn secondary" style="font-size:12px" onclick="moveWishToCart('${p._id}')">Add to cart</button>
-        <button class="remove" onclick="removeWishItem('${p._id}')">✕</button>
-      </div>`).join("");
-  }
-
-  async function moveWishToCart(productId) {
-    const { ok } = await api("POST", "/cart/" + currentUserId, { productId, quantity: 1 });
-    if (ok) { toast("Added to cart", true); refreshCounts(); }
-  }
-
-  async function removeWishItem(productId) {
-    const { ok } = await api("DELETE", "/wishlist/" + currentUserId + "/" + productId);
-    if (ok) { loadWishlist(); refreshCounts(); toast("Removed", true); }
-  }
+  function addToWishlist() { return callApi("POST", "/wishlist", { productId: val("w_productId") }); }
+  function removeWishlistItem() { return callApi("DELETE", "/wishlist/" + val("w_productId")); }
 
   // ---------- orders ----------
-  async function loadOrders() {
-    const list = document.getElementById("ordersList");
-    if (!currentUserId) { list.innerHTML = '<div class="empty">Select a user above.</div>'; return; }
-
-    const { ok, data } = await api("GET", "/orders/user/" + currentUserId);
-    const orders = (ok && data.data) || [];
-    if (orders.length === 0) { list.innerHTML = '<div class="empty">No orders yet.</div>'; return; }
-
-    list.innerHTML = orders.map(o => `
-      <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span class="status-pill status-${o.status}">${o.status}</span>
-          <span style="font-size:11px;color:var(--muted)">${new Date(o.createdAt).toLocaleString()}</span>
-        </div>
-        ${o.items.map(i => `
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
-            <span>${i.quantity} × ${i.name} ${i.selectedSize ? "(" + i.selectedSize + (i.selectedColor ? ", " + i.selectedColor : "") + ")" : ""}</span>
-            <span>${money(i.price * i.quantity)}</span>
-          </div>`).join("")}
-        <div class="total-line"><span>Total</span><strong>${money(o.totalPrice)}</strong></div>
-        ${(o.status === "pending" || o.status === "confirmed")
-          ? `<button class="btn secondary block" style="margin-top:6px" onclick="cancelOrder('${o._id}')">Cancel order</button>`
-          : ""}
-      </div>`).join("");
+  function checkout() {
+    return callApi("POST", "/orders", {
+      shippingAddress: {
+        fullName: val("o_fullName"), phone: val("o_phone"),
+        address: val("o_address"), city: val("o_city"), postalCode: val("o_postal"),
+      },
+    });
   }
 
-  async function cancelOrder(orderId) {
-    const { ok } = await api("PUT", "/orders/" + orderId + "/cancel");
-    if (ok) { toast("Order cancelled", true); loadOrders(); }
+  // ---------- products ----------
+  function createProduct(sendToken = true) {
+    return callApi("POST", "/products", {
+      name: val("p_name"), brand: val("p_brand"), category: val("p_category"),
+      price: Number(val("p_price")), stock: 10,
+    }, sendToken);
   }
 </script>
 
