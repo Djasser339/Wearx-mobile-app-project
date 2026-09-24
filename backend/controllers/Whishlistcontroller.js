@@ -22,7 +22,7 @@ const PRODUCT_FIELDS = "name brand price images category tag rating";
 // GET: show a user's wishlist (empty if they don't have one yet)
 const getWishlist = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
 
     if (!mongoose.isValidObjectId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user id" });
@@ -46,7 +46,7 @@ const getWishlist = async (req, res) => {
 // POST: save a product to the wishlist. Body: { productId }
 const addToWishlist = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
     const { productId } = req.body || {};
 
     if (!mongoose.isValidObjectId(userId)) {
@@ -79,10 +79,11 @@ const addToWishlist = async (req, res) => {
 };
 
 // DELETE: remove one product from the wishlist
-// URL: /:userId/:productId
+// URL: /:productId
 const removeFromWishlist = async (req, res) => {
   try {
-    const { userId, productId } = req.params;
+    const { productId } = req.params;
+    const userId = req.user.id;
 
     if (!mongoose.isValidObjectId(userId) || !mongoose.isValidObjectId(productId)) {
       return res.status(400).json({ success: false, message: "Invalid user or product id" });
@@ -107,7 +108,7 @@ const removeFromWishlist = async (req, res) => {
 // DELETE: remove everything from the wishlist
 const clearWishlist = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
 
     if (!mongoose.isValidObjectId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user id" });

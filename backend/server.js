@@ -6,11 +6,12 @@ const express = require("express");
 const cors = require("cors");
 const connectDB = require("./config/db");
 
-const userRoutes = require("./routes/Userroutes");
-const productRoutes = require("./routes/productroutes");
-const cartRoutes = require("./routes/Cartroutes");
-const wishlistRoutes = require("./routes/Whishlistroutes");
-const orderRoutes = require("./routes/Orderroutes");
+const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
+const productRoutes = require("./routes/productRoutes");
+const cartRoutes = require("./routes/cartRoutes");
+const wishlistRoutes = require("./routes/wishlistRoutes");
+const orderRoutes = require("./routes/orderRoutes");
 
 // Connect to MongoDB before the app starts handling requests
 connectDB();
@@ -33,6 +34,7 @@ app.get("/", (req, res) => {
 
 // Mount each router under its own base path.
 // Example: userRoutes' "/:id" becomes "/api/users/:id" here.
+app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);

@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { protect } = require("../middleware/authMiddleware");
 
 const {
   getCart,
@@ -9,15 +10,12 @@ const {
   clearCart,
 } = require("../controllers/cartController");
 
-// Mounted at "/api/cart"
-// Every cart belongs to a user, so :userId appears in every route.
-// (Once login/JWT exists, :userId will be replaced by the logged-in user
-// and these paths will get shorter — see the note at the end.)
+// Mounted at "/api/cart". The logged-in user's id comes from protect.
 
-router.get("/:userId", getCart); // GET    /api/cart/:userId
-router.post("/:userId", addToCart); // POST   /api/cart/:userId
-router.put("/:userId/items/:productId", updateCartItem); // PUT    /api/cart/:userId/items/:productId
-router.delete("/:userId/items/:productId", removeFromCart); // DELETE /api/cart/:userId/items/:productId
-router.delete("/:userId", clearCart); // DELETE /api/cart/:userId
+router.get("/", protect, getCart); // GET    /api/cart
+router.post("/", protect, addToCart); // POST   /api/cart
+router.put("/items/:productId", protect, updateCartItem); // PUT    /api/cart/items/:productId
+router.delete("/items/:productId", protect, removeFromCart); // DELETE /api/cart/items/:productId
+router.delete("/", protect, clearCart); // DELETE /api/cart
 
 module.exports = router;

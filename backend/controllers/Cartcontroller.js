@@ -50,7 +50,7 @@ const readVariant = (req) => {
 // GET: show a user's cart (an empty cart if they don't have one yet)
 const getCart = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
 
     if (!mongoose.isValidObjectId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user id" });
@@ -76,7 +76,7 @@ const getCart = async (req, res) => {
 // Body: { productId, quantity (default 1), selectedSize, selectedColor }
 const addToCart = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
     const { productId, quantity = 1, selectedSize, selectedColor } = req.body || {};
 
     if (!mongoose.isValidObjectId(userId)) {
@@ -139,10 +139,11 @@ const addToCart = async (req, res) => {
 };
 
 // PUT: change the quantity of one cart line
-// URL: /:userId/items/:productId   Body: { quantity, selectedSize, selectedColor }
+// URL: /items/:productId   Body: { quantity, selectedSize, selectedColor }
 const updateCartItem = async (req, res) => {
   try {
-    const { userId, productId } = req.params;
+    const { productId } = req.params;
+    const userId = req.user.id;
     const { quantity } = req.body || {};
     const { selectedSize, selectedColor } = readVariant(req);
 
@@ -189,10 +190,11 @@ const updateCartItem = async (req, res) => {
 };
 
 // DELETE: remove one line from the cart
-// URL: /:userId/items/:productId?selectedSize=M&selectedColor=Blue
+// URL: /items/:productId?selectedSize=M&selectedColor=Blue
 const removeFromCart = async (req, res) => {
   try {
-    const { userId, productId } = req.params;
+    const { productId } = req.params;
+    const userId = req.user.id;
     const { selectedSize, selectedColor } = readVariant(req);
 
     if (!mongoose.isValidObjectId(userId) || !mongoose.isValidObjectId(productId)) {
@@ -224,7 +226,7 @@ const removeFromCart = async (req, res) => {
 // DELETE: empty the whole cart
 const clearCart = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
 
     if (!mongoose.isValidObjectId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user id" });

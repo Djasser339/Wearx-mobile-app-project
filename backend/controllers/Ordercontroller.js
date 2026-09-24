@@ -35,7 +35,7 @@ const createOrder = async (req, res) => {
   let order = null;
 
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
     const { shippingAddress } = req.body || {};
 
     if (!mongoose.isValidObjectId(userId)) {
@@ -151,7 +151,7 @@ const getOrders = async (req, res) => {
 // GET: list one user's orders (their order history)
 const getUserOrders = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
 
     if (!mongoose.isValidObjectId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user id" });
@@ -180,6 +180,14 @@ const getOrderById = async (req, res) => {
     const order = await Order.findById(id).populate("user", "name email");
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (
+      req.user.role !== "admin" &&
+      req.user.role !== "seller" &&
+      order.user._id.toString() !== req.user.id
+    ) {
+      return res.status(403).json({ success: false, message: "Not authorized to view this order" });
     }
 
     res.status(200).json({ success: true, data: order });
