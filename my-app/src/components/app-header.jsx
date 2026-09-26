@@ -1,13 +1,27 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useAuth } from '../context/auth-context';
 
-const BRAND = 'WEARX'; 
-const AVATAR = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80';
-const HAS_UNREAD = true; // later: read this from shared state
+const BRAND = 'WEARX';
+
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
 
 export default function AppHeader() {
   const insets = useSafeAreaInsets(); // height of the status bar / notch
+  const { user } = useAuth();
+
+  // Was hardcoded to `true` before, so the red dot never reflected reality.
+  // Wire this to a real unread count once notifications exist; for now it
+  // simply stays off, which is more honest than a permanent fake badge.
+  const unreadCount = 0;
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -17,14 +31,31 @@ export default function AppHeader() {
       </View>
 
       <View style={styles.actions}>
-        <Pressable hitSlop={8}>
+        <Pressable
+          hitSlop={8}
+          onPress={() => router.push('/(tabs)/shop')}
+          accessibilityLabel="Search products"
+        >
           <Ionicons name="search-outline" size={23} color="#0F1115" />
         </Pressable>
-        <Pressable hitSlop={8}>
+
+        <Pressable hitSlop={8} accessibilityLabel="Notifications">
           <Ionicons name="notifications-outline" size={23} color="#0F1115" />
-          {HAS_UNREAD && <View style={styles.bellDot} />}
+          {unreadCount > 0 && <View style={styles.bellDot} />}
         </Pressable>
-        <Image source={{ uri: AVATAR }} style={styles.avatar} />
+
+        <Pressable
+          onPress={() => router.push('/(tabs)/profile')}
+          accessibilityLabel="Your profile"
+        >
+          {user?.avatar ? (
+            <Image source={{ uri: user.avatar }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatarFallback}>
+              <Text style={styles.avatarInitials}>{getInitials(user?.name)}</Text>
+            </View>
+          )}
+        </Pressable>
       </View>
     </View>
   );
@@ -53,4 +84,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#D62839',
   },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#ECEEF1' },
+  avatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0F1115',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 });

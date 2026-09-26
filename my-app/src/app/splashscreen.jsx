@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -9,13 +9,20 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
+import { useAuth } from '../context/auth-context';
 
 const WORD = 'WEARX';
 const TAGLINE = 'STYLE THAT FITS YOU.';
-const NEXT_ROUTE = '/(tabs)/explore';
 
 export default function SplashScreen() {
   const { height } = useWindowDimensions();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  // The animation finishes on its own timeline. The auth check (reading a
+  // saved token from SecureStore) finishes on its own timeline too. We
+  // only navigate once BOTH are done, so a slow auth check never gets cut
+  // off mid-check, and a slow animation still plays out fully.
+  const [animationDone, setAnimationDone] = useState(false);
 
   // One driver per animated piece, created once.
   const tileScale = useRef(new Animated.Value(0.6)).current;
@@ -102,11 +109,18 @@ export default function SplashScreen() {
     ]);
 
     sequence.start(({ finished }) => {
-      if (finished) router.replace(NEXT_ROUTE);
+      if (finished) setAnimationDone(true);
     });
 
     return () => sequence.stop();
   }, []);
+
+  // Navigate only once the animation has played AND we know whether the
+  // user has a valid saved session.
+  useEffect(() => {
+    if (!animationDone || authLoading) return;
+    router.replace(isAuthenticated ? '/(tabs)/explore' : '/(auth)/login');
+  }, [animationDone, authLoading, isAuthenticated]);
 
   const sweepTranslate = sweepX.interpolate({
     inputRange: [-1, 1],
