@@ -115,4 +115,26 @@ export function loginRequest({ email, password }) {
 
 export function meRequest(token) {
   return apiRequest('/auth/me', { method: 'GET', token });
-}   
+}
+
+// ---- endpoints used by the Profile screen ----
+
+export function getMyOrdersRequest(token) {
+  return apiRequest('/orders/user', { method: 'GET', token });
+}
+
+export function getWishlistRequest(token) {
+  return apiRequest('/wishlist', { method: 'GET', token });
+}
+// ---- endpoints used by the Explore screen ----
+
+export function getProductsRequest(params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  ).toString();
+  return apiRequest(`/products${query ? `?${query}` : ''}`, { method: 'GET' });
+}
+
+export function getProductByIdRequest(id) {
+  return apiRequest(`/products/${id}`, { method: 'GET' });
+}

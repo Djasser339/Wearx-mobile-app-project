@@ -1,34 +1,38 @@
-import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
-import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import { useAuth } from '../../context/auth-context';
+import { getMyOrdersRequest, getWishlistRequest } from '../../services/api';
 
 /* =========================================================================
- *  DATA — swap for real user data later
+ *  Menu rows — none of these have a real screen yet, so each just
+ *  acknowledges the tap instead of navigating somewhere broken.
  * ========================================================================= */
-
-const USER = {
-  name: 'Alexander Vance',
-  email: 'a.vance@studio.com',
-  memberSince: 2023,
-  verified: true,
-  avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80',
-  stats: { orders: 4, wishlist: 8, addresses: 2 },
-};
 
 const MENU = [
-  { id: 'orders',        icon: 'package',     title: 'My Orders',        sub: 'Track purchases & archival invoices', badge: '1 ACTIVE' },
-  { id: 'addresses',     icon: 'map-pin',     title: 'Addresses',        sub: 'Saved shipping & billing addresses' },
-  { id: 'payments',      icon: 'credit-card', title: 'Payment Methods',  sub: 'Cards & Apple Pay linked' },
-  { id: 'settings',      icon: 'sliders',     title: 'Account Settings', sub: 'Personal details & security keys' },
-  { id: 'notifications', icon: 'bell',        title: 'Notifications',    sub: 'Drop updates, restocks & concierge' },
-  { id: 'help',          icon: 'headphones',  title: 'Help & Support',   sub: 'Direct concierge line & garment care FAQ' },
+  { id: 'orders', icon: 'package', title: 'My Orders', sub: 'Track purchases & archival invoices' },
+  { id: 'addresses', icon: 'map-pin', title: 'Addresses', sub: 'Saved shipping & billing addresses' },
+  { id: 'payments', icon: 'credit-card', title: 'Payment Methods', sub: 'Cards & Apple Pay linked' },
+  { id: 'settings', icon: 'sliders', title: 'Account Settings', sub: 'Personal details & security keys' },
+  { id: 'notifications', icon: 'bell', title: 'Notifications', sub: 'Drop updates, restocks & concierge' },
+  { id: 'help', icon: 'headphones', title: 'Help & Support', sub: 'Direct concierge line & garment care FAQ' },
 ];
 
-/* =========================================================================
- *  THEME
- * ========================================================================= */
+const ACTIVE_STATUSES = new Set(['pending', 'confirmed', 'shipped']);
 
 const C = {
   bg: '#F5F6F8',
@@ -45,97 +49,207 @@ const C = {
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
-/* =========================================================================
- *  SCREEN
- * ========================================================================= */
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
 
 export default function Profile() {
+  const { user, token, logout } = useAuth();
+
+  const [orders, setOrders] = useState([]);
+  const [wishlistCount, setWishlistCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      setError(null);
+      const [ordersRes, wishlistRes] = await Promise.all([
+        getMyOrdersRequest(token),
+        getWishlistRequest(token),
+      ]);
+      setOrders(ordersRes.data || []);
+      setWishlistCount((wishlistRes.data?.products || []).length);
+    } catch (e) {
+      setError(e?.message ?? 'Failed to load your account data');
+    }
+  }, [token]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      await load();
+      if (alive) setLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const stats = useMemo(() => {
+    const activeOrders = orders.filter((o) => ACTIVE_STATUSES.has(o.status)).length;
+
+    // No address-book feature exists yet, so this counts distinct shipping
+    // addresses seen across past orders — a reasonable stand-in, not a
+    // real saved-addresses list.
+    const distinctAddresses = new Set(
+      orders
+        .filter((o) => o.shippingAddress)
+        .map((o) => `${o.shippingAddress.address}|${o.shippingAddress.city}`)
+    ).size;
+
+    return {
+      orders: orders.length,
+      activeOrders,
+      wishlist: wishlistCount,
+      addresses: distinctAddresses,
+    };
+  }, [orders, wishlistCount]);
+
+  const memberSince = user?.createdAt ? new Date(user.createdAt).getFullYear() : '—';
+  const canSellerStudio = user?.role && user.role !== 'customer';
+
   const confirmLogout = () =>
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => router.replace('/') },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+          router.replace('/(auth)/login');
+        },
+      },
     ]);
+
+  const comingSoon = (label) => Alert.alert(label, 'This isn\u2019t built yet — coming soon.');
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
+        <StatusBar style="dark" />
+        <ActivityIndicator color={C.ink} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={[]}>
       <StatusBar style="dark" />
 
-      
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 28 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.muted} />
+        }
+      >
         {/* identity */}
         <View style={styles.identity}>
           <View style={styles.avatarRing}>
-            <Image source={{ uri: USER.avatar }} style={styles.avatar} />
-            <Pressable style={styles.cameraBtn} hitSlop={6}>
+            {user?.avatar ? (
+              <View style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarInitials}>{getInitials(user?.name)}</Text>
+              </View>
+            )}
+            <Pressable
+              style={styles.cameraBtn}
+              hitSlop={6}
+              onPress={() => comingSoon('Profile photo upload')}
+            >
               <Feather name="camera" size={14} color="#fff" />
             </Pressable>
           </View>
 
           <View style={styles.nameRow}>
-            <Text style={styles.name}>{USER.name}</Text>
-            {USER.verified && (
-              <MaterialCommunityIcons name="check-decagram" size={18} color={C.ink} />
-            )}
+            <Text style={styles.name}>{user?.name ?? '—'}</Text>
           </View>
-          <Text style={styles.email}>{USER.email}</Text>
+          <Text style={styles.email}>{user?.email ?? ''}</Text>
 
           <View style={styles.memberChip}>
             <View style={styles.memberDot} />
-            <Text style={styles.memberText}>MEMBER SINCE {USER.memberSince}</Text>
+            <Text style={styles.memberText}>MEMBER SINCE {memberSince}</Text>
           </View>
         </View>
+
+        {!!error && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle" size={16} color={C.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
 
         {/* stats */}
         <View style={styles.stats}>
-          <Stat value={USER.stats.orders} label="ORDERS" />
-          <Stat value={USER.stats.wishlist} label="WISHLIST" />
-          <Stat value={USER.stats.addresses} label="ADDRESSES" />
+          <Stat value={stats.orders} label="ORDERS" />
+          <Stat value={stats.wishlist} label="WISHLIST" />
+          <Stat value={stats.addresses} label="ADDRESSES" />
         </View>
 
-        {/* seller studio */}
-        <Pressable style={styles.studio}>
-          <View style={styles.studioCircle} />
-          <View style={{ flex: 1 }}>
-            <View style={styles.studioTop}>
-              <Text style={styles.studioEyebrow}>VANGUARD ATELIER</Text>
-              <View style={styles.proBadge}>
-                <Text style={styles.proText}>PRO</Text>
+        {/* seller studio — only relevant for non-customer roles */}
+        {canSellerStudio && (
+          <Pressable style={styles.studio} onPress={() => comingSoon('Seller Studio')}>
+            <View style={styles.studioCircle} />
+            <View style={{ flex: 1 }}>
+              <View style={styles.studioTop}>
+                <Text style={styles.studioEyebrow}>WEARX ATELIER</Text>
+                <View style={styles.proBadge}>
+                  <Text style={styles.proText}>{user.role.toUpperCase()}</Text>
+                </View>
               </View>
+              <Text style={styles.studioTitle}>Seller Studio</Text>
+              <Text style={styles.studioSub}>Manage capsule drops, live inventory & orders</Text>
             </View>
-            <Text style={styles.studioTitle}>Seller Studio</Text>
-            <Text style={styles.studioSub}>Manage capsule drops, live inventory & orders</Text>
-          </View>
-          <View style={styles.studioArrow}>
-            <Feather name="arrow-right" size={18} color={C.ink} />
-          </View>
-        </Pressable>
+            <View style={styles.studioArrow}>
+              <Feather name="arrow-right" size={18} color={C.ink} />
+            </View>
+          </Pressable>
+        )}
 
         {/* menu */}
         <View style={styles.menu}>
-          {MENU.map((item) => (
-            <Pressable
-              key={item.id}
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-              // TODO: router.push('/your-route') for each item
-            >
-              <View style={styles.rowIcon}>
-                <Feather name={item.icon} size={17} color={C.ink} />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>{item.title}</Text>
-                <Text style={styles.rowSub} numberOfLines={1}>
-                  {item.sub}
-                </Text>
-              </View>
-              {!!item.badge && (
-                <View style={styles.rowBadge}>
-                  <Text style={styles.rowBadgeText}>{item.badge}</Text>
+          {MENU.map((item) => {
+            const badge =
+              item.id === 'orders' && stats.activeOrders > 0
+                ? `${stats.activeOrders} ACTIVE`
+                : null;
+            return (
+              <Pressable
+                key={item.id}
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+                onPress={() => comingSoon(item.title)}
+              >
+                <View style={styles.rowIcon}>
+                  <Feather name={item.icon} size={17} color={C.ink} />
                 </View>
-              )}
-              <Ionicons name="chevron-forward" size={16} color={C.muted} />
-            </Pressable>
-          ))}
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                  <Text style={styles.rowSub} numberOfLines={1}>
+                    {item.sub}
+                  </Text>
+                </View>
+                {!!badge && (
+                  <View style={styles.rowBadge}>
+                    <Text style={styles.rowBadgeText}>{badge}</Text>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={16} color={C.muted} />
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* log out */}
@@ -144,15 +258,11 @@ export default function Profile() {
           <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
 
-        <Text style={styles.version}>VANGUARD V3.4.1 — COPENHAGEN</Text>
+        <Text style={styles.version}>WEARX V{Constants.expoConfig?.version ?? '1.0.0'}</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-/* =========================================================================
- *  PIECES
- * ========================================================================= */
 
 function Stat({ value, label }) {
   return (
@@ -163,35 +273,22 @@ function Stat({ value, label }) {
   );
 }
 
-/* =========================================================================
- *  STYLES
- * ========================================================================= */
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
+  loader: { alignItems: 'center', justifyContent: 'center' },
 
-  header: {
+  errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    backgroundColor: C.surface,
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 14,
+    backgroundColor: '#FCE9EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  brandRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
-  brand: { fontSize: 17, fontWeight: '800', letterSpacing: 1.4, color: C.ink },
-  brandDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#C9B79A', marginBottom: 4 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  bellDot: {
-    position: 'absolute',
-    top: 0,
-    right: 1,
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#D62839',
-  },
-  headerAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.line },
+  errorText: { flex: 1, color: C.danger, fontSize: 12, fontWeight: '600' },
 
   identity: { alignItems: 'center', paddingTop: 20 },
   avatarRing: {
@@ -202,6 +299,15 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
   },
   avatar: { width: '100%', height: '100%', borderRadius: 41, backgroundColor: C.line },
+  avatarFallback: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 41,
+    backgroundColor: C.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: { color: '#fff', fontSize: 26, fontWeight: '700' },
   cameraBtn: {
     position: 'absolute',
     right: -3,
@@ -264,12 +370,7 @@ const styles = StyleSheet.create({
   },
   studioTop: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   studioEyebrow: { fontSize: 10, fontWeight: '600', letterSpacing: 1.3, color: '#9AA0A8' },
-  proBadge: {
-    backgroundColor: '#fff',
-    borderRadius: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
+  proBadge: { backgroundColor: '#fff', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
   proText: { fontFamily: serif, fontSize: 10, fontWeight: '800', color: C.ink },
   studioTitle: { fontFamily: serif, fontSize: 19, fontWeight: '700', color: '#fff', marginTop: 6 },
   studioSub: { fontFamily: serif, fontSize: 12, color: '#9AA0A8', marginTop: 4, maxWidth: 220 },
@@ -308,12 +409,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1 },
   rowTitle: { fontFamily: serif, fontSize: 15, color: C.ink },
   rowSub: { fontFamily: serif, fontSize: 12, color: C.muted, marginTop: 2 },
-  rowBadge: {
-    backgroundColor: C.sand,
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
+  rowBadge: { backgroundColor: C.sand, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 4 },
   rowBadgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, color: C.ink },
 
   logout: {
