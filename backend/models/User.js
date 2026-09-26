@@ -26,6 +26,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true, // optional (no "required")
     },
+    avatar: {
+      type: String, // a URL to an image, not the image itself — optional
+      trim: true,
+    },
     role: {
       type: String,
       enum: ["customer", "seller", "admin"], // only these 3 values are allowed

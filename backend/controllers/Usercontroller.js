@@ -106,7 +106,7 @@ const updateUser = async (req, res) => {
 
     // Only copy the fields we allow to be changed
     const updates = {};
-    ["name", "email", "phone", "role"].forEach((field) => {
+    ["name", "email", "phone", "role", "avatar"].forEach((field) => {
       if (body[field] !== undefined) updates[field] = body[field];
     });
 
