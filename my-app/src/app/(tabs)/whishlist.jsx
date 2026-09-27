@@ -1,95 +1,48 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Image,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import { useAuth } from '../../context/auth-context';
+import {
+  ApiError,
+  getWishlistRequest,
+  removeFromWishlistRequest,
+} from '../../services/api';
 
-/* =========================================================================
- *  DATA — swap for real API data later
- * ========================================================================= */
-
-const AVATAR =
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80';
-
-const PRODUCTS = [
-  {
-    id: 'w1',
-    brand: 'Vanguard Lab',
-    name: 'Utility Overshirt',
-    color: 'Forest Olive',
-    size: 'Size M',
-    price: 110,
-    tag: { label: 'NEW IN', tone: 'dark' },
-    image: 'https://images.unsplash.com/photo-1608063615781-e2ef8c9d25d4?w=700&q=80',
-  },
-  {
-    id: 'w2',
-    brand: 'Essential',
-    name: 'Oxford Cotton Shirt',
-    color: 'Sky Blue',
-    size: 'Size L',
-    price: 78,
-    tag: { label: 'ORGANIC', tone: 'sand' },
-    image: 'https://images.unsplash.com/photo-1598033129183-c4f50c736f10?w=700&q=80',
-  },
-  {
-    id: 'w3',
-    brand: 'Footwear',
-    name: 'Suede Runner Shoes',
-    color: 'Off-White',
-    size: 'Size 42',
-    price: 130,
-    tag: null,
-    image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=700&q=80',
-  },
-  {
-    id: 'w4',
-    brand: 'Heavyweight',
-    name: 'Heavyweight Boxy Tee',
-    color: 'Warm Sand',
-    size: 'Size M',
-    price: 48,
-    tag: null,
-    image: 'https://images.unsplash.com/photo-1583743814966-8936f37f4678?w=700&q=80',
-  },
-  {
-    id: 'r1',
-    brand: 'Tailoring',
-    name: 'Pleated Wool Trousers',
-    color: 'Charcoal',
-    size: 'Size 32',
-    price: 145,
-    tag: null,
-    image: 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=700&q=80',
-  },
-  {
-    id: 'r2',
-    brand: 'Accessories',
-    name: 'Ribbed Merino Beanie',
-    color: 'Oatmeal',
-    size: 'One size',
-    price: 45,
-    tag: null,
-    image: 'https://images.unsplash.com/photo-1576871337622-98d48d1cf531?w=700&q=80',
-  },
-];
-
-const byId = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
-const INITIAL_WISHLIST = ['w1', 'w2', 'w3', 'w4'];
-const RECENT_IDS = ['r1', 'r2'];
+const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
 
 const formatPrice = (v) => `$${Number(v).toFixed(2)}`;
+
+/* ---- adapter: backend Product doc -> UI shape --------------------------- */
+
+function mapWishlistProduct(p) {
+  return {
+    id: p._id,
+    brand: p.brand,
+    name: p.name,
+    color: p.colors?.[0] ?? '',
+    price: p.price,
+    tag: p.tag
+      ? { label: p.tag, tone: p.tag === 'NEW' ? 'dark' : 'sand' }
+      : null,
+    image: p.images?.[0] ?? PLACEHOLDER_IMAGE,
+  };
+}
 
 /* =========================================================================
  *  THEME
@@ -106,6 +59,7 @@ const C = {
   chipText: '#5B6480',
   banner: '#EAEEFA',
   sand: '#F1E4C8',
+  danger: '#C1272D',
 };
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
@@ -117,24 +71,90 @@ const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'seri
 export default function Wishlist() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - 12) / 2;
+  const { token, isAuthenticated } = useAuth();
 
-  const [ids, setIds] = useState(INITIAL_WISHLIST);
-  const [previewEmpty, setPreviewEmpty] = useState(false); // demo toggle for the empty state
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
-  const toggle = (id) =>
-    setIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [id, ...prev]));
+  const load = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      setError(null);
+      const res = await getWishlistRequest(token);
+      setItems((res.data?.products || []).map(mapWishlistProduct));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not load your wishlist.');
+    }
+  }, [token, isAuthenticated]);
 
-  const items = previewEmpty ? [] : ids.map((id) => byId[id]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      await load();
+      if (alive) setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const removeItem = useCallback(async (id) => {
+    // optimistic
+    const prev = items;
+    setItems((cur) => cur.filter((x) => x.id !== id));
+    try {
+      await removeFromWishlistRequest(token, id);
+    } catch (e) {
+      setItems(prev); // rollback
+      setError(e instanceof ApiError ? e.message : 'Could not remove that item.');
+    }
+  }, [items, token]);
+
   const count = items.length;
+
+  /* ---- not logged in ---------------------------------------------------- */
+  if (!isAuthenticated) {
+    return (
+      <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
+        <StatusBar style="dark" />
+        <View style={styles.emptyIcon}>
+          <Ionicons name="heart-outline" size={30} color={C.ink} />
+        </View>
+        <Text style={styles.emptyTitle}>Log in to see your wishlist</Text>
+        <Text style={styles.emptyBody}>Your saved items are tied to your account.</Text>
+        <Pressable style={styles.emptyBtn} onPress={() => router.push('/(auth)/login')}>
+          <Text style={styles.emptyBtnText}>Log in</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
+        <StatusBar style="dark" />
+        <ActivityIndicator color={C.ink} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={[]}>
       <StatusBar style="dark" />
 
-      
-
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 32 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.muted} />
+        }
+      >
         {/* title */}
         <View style={styles.titleRow}>
           <Text style={styles.title}>Wishlist</Text>
@@ -145,17 +165,19 @@ export default function Wishlist() {
           </View>
         </View>
 
+        {!!error && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle" size={16} color={C.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
         {/* shipping banner */}
         <View style={styles.banner}>
           <Feather name="truck" size={20} color={C.body} />
           <Text style={styles.bannerText}>
             Complimentary express shipping on orders over $150
           </Text>
-          <Pressable onPress={() => setPreviewEmpty((v) => !v)} hitSlop={8}>
-            <Text style={styles.bannerAction}>
-              {previewEmpty ? 'SHOW\nITEMS' : 'PREVIEW\nEMPTY'}
-            </Text>
-          </Pressable>
         </View>
 
         {/* wishlist grid / empty state */}
@@ -166,7 +188,7 @@ export default function Wishlist() {
                 key={item.id}
                 item={item}
                 width={cardWidth}
-                onToggle={() => toggle(item.id)}
+                onToggle={() => removeItem(item.id)}
               />
             ))}
           </View>
@@ -184,30 +206,6 @@ export default function Wishlist() {
             </Pressable>
           </View>
         )}
-
-        {/* recently viewed */}
-        <View style={styles.sectionHead}>
-          <View>
-            <Text style={styles.eyebrow}>CONTINUE EXPLORING</Text>
-            <Text style={styles.sectionTitle}>Recently Viewed</Text>
-          </View>
-          <Pressable hitSlop={8} style={styles.viewAll}>
-            <Text style={styles.viewAllText}>VIEW ALL</Text>
-            <Ionicons name="chevron-forward" size={14} color={C.ink} />
-          </Pressable>
-        </View>
-
-        <View style={styles.grid}>
-          {RECENT_IDS.map((id) => (
-            <RecentCard
-              key={id}
-              item={byId[id]}
-              width={cardWidth}
-              wishlisted={ids.includes(id)}
-              onToggle={() => toggle(id)}
-            />
-          ))}
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -236,35 +234,13 @@ function WishCard({ item, width, onToggle }) {
       </View>
 
       <View style={styles.body}>
-        <View style={styles.metaRow}>
-          <Text style={styles.brandLabel} numberOfLines={1}>
-            {item.brand.toUpperCase()}
-          </Text>
-          <Text style={styles.sizeLabel}>{item.size}</Text>
-        </View>
+        <Text style={styles.brandLabel} numberOfLines={1}>
+          {item.brand.toUpperCase()}
+        </Text>
         <Text style={styles.name} numberOfLines={1}>
           {item.name}
         </Text>
-        <Text style={styles.color}>{item.color}</Text>
-        <Text style={styles.price}>{formatPrice(item.price)}</Text>
-      </View>
-    </View>
-  );
-}
-
-function RecentCard({ item, width, wishlisted, onToggle }) {
-  const imgW = width - 20;
-  return (
-    <View style={[styles.card, { width }]}>
-      <View style={[styles.media, { height: imgW * 1.32 }]}>
-        <Image source={{ uri: item.image }} style={styles.mediaImg} />
-        <HeartButton active={wishlisted} onPress={onToggle} size={32} />
-      </View>
-      <View style={styles.body}>
-        <Text style={styles.brandLabel}>{item.brand.toUpperCase()}</Text>
-        <Text style={[styles.name, { fontSize: 15 }]} numberOfLines={1}>
-          {item.name}
-        </Text>
+        {!!item.color && <Text style={styles.color}>{item.color}</Text>}
         <Text style={styles.price}>{formatPrice(item.price)}</Text>
       </View>
     </View>
@@ -300,34 +276,25 @@ function HeartButton({ active, onPress, size = 34 }) {
 }
 
 /* =========================================================================
- *  STYLES
+ *  STYLES (unchanged from before, minus header/recently-viewed styles)
  * ========================================================================= */
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
+  loader: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 32 },
 
-  header: {
+  errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: C.surface,
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 14,
+    backgroundColor: '#FCE9EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  brandRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 5 },
-  brand: { fontSize: 19, fontWeight: '800', letterSpacing: 1.5, color: C.ink },
-  brandDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#C9B79A', marginBottom: 4 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  bellDot: {
-    position: 'absolute',
-    top: 0,
-    right: 1,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#D62839',
-  },
-  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.line },
+  errorText: { flex: 1, color: C.danger, fontSize: 12, fontWeight: '600' },
 
   titleRow: {
     flexDirection: 'row',
@@ -359,14 +326,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   bannerText: { flex: 1, fontFamily: serif, fontSize: 14, lineHeight: 20, color: C.body },
-  bannerAction: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1.6,
-    color: C.muted,
-    textAlign: 'center',
-    lineHeight: 17,
-  },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 16 },
 
@@ -394,25 +353,10 @@ const styles = StyleSheet.create({
   tagText: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
 
   body: { paddingTop: 12, paddingHorizontal: 2, paddingBottom: 4 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
-  brandLabel: { flexShrink: 1, fontSize: 11, fontWeight: '600', letterSpacing: 1.1, color: C.body },
-  sizeLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1, color: C.body },
+  brandLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.1, color: C.body },
   name: { fontFamily: serif, fontSize: 17, color: C.ink, marginTop: 8 },
   color: { fontFamily: serif, fontSize: 14, color: C.muted, marginTop: 8 },
   price: { fontSize: 16, fontWeight: '700', color: C.ink, marginTop: 14 },
-
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    marginTop: 36,
-    marginBottom: 14,
-  },
-  eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 1.6, color: C.body },
-  sectionTitle: { fontFamily: serif, fontSize: 23, fontWeight: '700', color: C.ink, marginTop: 2 },
-  viewAll: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingBottom: 4 },
-  viewAllText: { fontSize: 12, fontWeight: '600', letterSpacing: 1.2, color: C.body },
 
   empty: { alignItems: 'center', paddingHorizontal: 32, paddingVertical: 40 },
   emptyIcon: {

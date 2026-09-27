@@ -138,3 +138,18 @@ export function getProductsRequest(params = {}) {
 export function getProductByIdRequest(id) {
   return apiRequest(`/products/${id}`, { method: 'GET' });
 }
+export function addToWishlistRequest(token, productId) {
+  return apiRequest('/wishlist', {
+    method: 'POST',
+    body: { productId },
+    token,
+  });
+}
+
+export function removeFromWishlistRequest(token, productId) {
+  return apiRequest(`/wishlist/${productId}`, { method: 'DELETE', token });
+}
+
+export function clearWishlistRequest(token) {
+  return apiRequest('/wishlist', { method: 'DELETE', token });
+}
