@@ -1,4 +1,3 @@
-
 // Run with: npm run seed
 // This wipes your current data and fills the database with sample
 // products and test users, so your app has something to show.
@@ -13,9 +12,6 @@ const Cart = require("./models/Cart");
 const Wishlist = require("./models/Wishlist");
 const Order = require("./models/Order");
 
-const img = (text) =>
-  `https://placehold.co/500x600/1a1d24/ffffff?text=${encodeURIComponent(text)}`;
-
 const products = [
   {
     name: "Classic Oxford Shirt",
@@ -26,7 +22,7 @@ const products = [
     colors: ["White", "Blue"],
     sizes: ["S", "M", "L", "XL"],
     stock: 20,
-    images: [img("Oxford Shirt")],
+    images: ["https://images.unsplash.com/photo-1598033129183-c4f50c736f10?w=800&q=80"],
     tag: "NEW",
   },
   {
@@ -38,7 +34,7 @@ const products = [
     colors: ["Beige", "Sky Blue"],
     sizes: ["M", "L", "XL"],
     stock: 15,
-    images: [img("Linen Shirt")],
+    images: ["https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=800&q=80"],
   },
   {
     name: "Essential Crew Tee",
@@ -49,7 +45,7 @@ const products = [
     colors: ["Black", "White", "Grey"],
     sizes: ["S", "M", "L", "XL", "XXL"],
     stock: 40,
-    images: [img("Crew Tee")],
+    images: ["https://images.unsplash.com/photo-1583743814966-8936f37f4678?w=800&q=80"],
     tag: "POPULAR",
   },
   {
@@ -61,7 +57,7 @@ const products = [
     colors: ["Black", "White"],
     sizes: ["S", "M", "L"],
     stock: 25,
-    images: [img("Graphic Tee")],
+    images: ["https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&q=80"],
     tag: "NEW",
   },
   {
@@ -73,7 +69,7 @@ const products = [
     colors: ["Khaki", "Navy", "Black"],
     sizes: ["30", "32", "34", "36"],
     stock: 18,
-    images: [img("Chino Pants")],
+    images: ["https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=800&q=80"],
   },
   {
     name: "Straight Fit Jeans",
@@ -84,7 +80,7 @@ const products = [
     colors: ["Blue"],
     sizes: ["30", "32", "34", "36"],
     stock: 12,
-    images: [img("Jeans")],
+    images: ["https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=800&q=80"],
     tag: "POPULAR",
   },
   {
@@ -96,7 +92,7 @@ const products = [
     colors: ["Olive", "Black"],
     sizes: ["S", "M", "L", "XL"],
     stock: 22,
-    images: [img("Cargo Shorts")],
+    images: ["https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=800&q=80"],
   },
   {
     name: "Athletic Training Shorts",
@@ -107,7 +103,7 @@ const products = [
     colors: ["Black", "Grey"],
     sizes: ["S", "M", "L"],
     stock: 30,
-    images: [img("Training Shorts")],
+    images: ["https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?w=800&q=80"],
     tag: "NEW",
   },
   {
@@ -119,7 +115,7 @@ const products = [
     colors: ["Blue"],
     sizes: ["M", "L", "XL"],
     stock: 10,
-    images: [img("Denim Jacket")],
+    images: ["https://images.unsplash.com/photo-1543076447-215ad9ba6923?w=800&q=80"],
     tag: "POPULAR",
   },
   {
@@ -131,7 +127,7 @@ const products = [
     colors: ["Black", "Olive"],
     sizes: ["S", "M", "L", "XL"],
     stock: 14,
-    images: [img("Bomber Jacket")],
+    images: ["https://images.unsplash.com/photo-1551028719-00167b16eac5?w=800&q=80"],
     tag: "NEW",
   },
   {
@@ -143,7 +139,7 @@ const products = [
     colors: ["White", "Black"],
     sizes: ["40", "41", "42", "43", "44"],
     stock: 16,
-    images: [img("Sneakers")],
+    images: ["https://images.unsplash.com/photo-1549298916-b41d501d3772?w=800&q=80"],
     tag: "POPULAR",
   },
   {
@@ -155,7 +151,7 @@ const products = [
     colors: ["Black", "Grey"],
     sizes: ["40", "41", "42", "43", "44"],
     stock: 10,
-    images: [img("Running Shoes")],
+    images: ["https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80"],
   },
   {
     name: "Leather Belt",
@@ -166,7 +162,7 @@ const products = [
     colors: ["Brown", "Black"],
     sizes: ["M", "L"],
     stock: 25,
-    images: [img("Leather Belt")],
+    images: ["https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&q=80"],
   },
   {
     name: "Wool Beanie",
@@ -177,7 +173,7 @@ const products = [
     colors: ["Black", "Grey", "Navy"],
     sizes: [],
     stock: 35,
-    images: [img("Beanie")],
+    images: ["https://images.unsplash.com/photo-1576871337622-98d48d1cf531?w=800&q=80"],
     tag: "NEW",
   },
 ];
