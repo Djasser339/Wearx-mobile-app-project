@@ -7,11 +7,11 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 
 const authRoutes = require("./routes/authRoutes");
-const userRoutes = require("./routes/userRoutes");
-const productRoutes = require("./routes/productRoutes");
-const cartRoutes = require("./routes/cartRoutes");
+const userRoutes = require("./routes/Userroutes");
+const productRoutes = require("./routes/productroutes");
+const cartRoutes = require("./routes/Cartroutes");
 const wishlistRoutes = require("./routes/Whishlistroutes");
-const orderRoutes = require("./routes/orderRoutes");
+const orderRoutes = require("./routes/Orderroutes");
 
 // Connect to MongoDB before the app starts handling requests
 connectDB();
