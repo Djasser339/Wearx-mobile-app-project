@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   FlatList,
   Image,
@@ -16,12 +17,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { getProductsRequest, ApiError } from '../../services/api'; // adjust path if needed
+import { useAuth } from '../../context/auth-context';
+import {
+  ApiError,
+  addToWishlistRequest,
+  getProductsRequest,
+  getWishlistRequest,
+  removeFromWishlistRequest,
+} from '../../services/api';
 
 /* =========================================================================
  *  LOCAL CONTENT — not backed by an endpoint yet
  * ========================================================================= */
+
+const CURRENCY = 'DA'; // change to '$' style formatting below if you prefer USD
 
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
 
@@ -74,19 +85,14 @@ function mapStyle(p) {
   };
 }
 
-/* ---- mocked until you share wishlist/cart endpoints ---------------------- */
-
-async function toggleWishlist(productId, next) {
-  await new Promise((r) => setTimeout(r, 120));
-  return { productId, wishlisted: next };
-}
+/* ---- cart is still mocked until you share the cart endpoints ------------- */
 
 async function addToCart(productId, qty = 1) {
   await new Promise((r) => setTimeout(r, 150));
   return { productId, qty, ok: true };
 }
 
-const formatPrice = (v) => `$${Number(v).toFixed(2)}`;
+const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
 
 /* =========================================================================
  *  SCREEN
@@ -101,6 +107,7 @@ const C = {
   line: '#ECEEF1',
   chipBg: '#EDF0FA',
   accentSoft: '#E9EDFB',
+  danger: '#C1272D',
 };
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
@@ -108,22 +115,25 @@ const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'seri
 export default function Explore() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - 12) / 2;
+  const { token, isAuthenticated } = useAuth();
 
   const [arrivals, setArrivals] = useState([]);
   const [popularStyles, setPopularStyles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [hasData, setHasData] = useState(false); // true once any load has succeeded
 
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState(null); // null = all categories
-  const [wishlist, setWishlist] = useState([]);
+  const [wishlist, setWishlist] = useState([]); // product ids, sourced from the backend
   const [cart, setCart] = useState({});
 
   const requestId = useRef(0);
   const didMount = useRef(false);
+  const wishlistPending = useRef(new Set()); // product ids with a request in flight
 
-  /* ---- load from backend -------------------------------------------- */
+  /* ---- load products ------------------------------------------------- */
   const load = useCallback(async () => {
     const thisRequest = ++requestId.current;
     try {
@@ -142,6 +152,7 @@ export default function Explore() {
 
       setArrivals(arrivalsRes.data.map(mapProduct));
       setPopularStyles(popularRes.data.map(mapStyle));
+      setHasData(true);
     } catch (e) {
       if (thisRequest !== requestId.current) return;
       setError(e instanceof ApiError ? e.message : 'Could not load products.');
@@ -166,25 +177,77 @@ export default function Explore() {
     return () => clearTimeout(handle);
   }, [query, activeCategory, load]);
 
+  /* ---- load wishlist ids (on focus, so it stays in sync with the Wishlist tab) */
+  const loadWishlist = useCallback(async () => {
+    if (!isAuthenticated) {
+      setWishlist([]);
+      return;
+    }
+    try {
+      const res = await getWishlistRequest(token);
+      // Don't clobber an optimistic update that's still in flight.
+      if (wishlistPending.current.size > 0) return;
+      setWishlist((res.data?.products || []).map((p) => p._id));
+    } catch {
+      // non-fatal: hearts just start unfilled
+    }
+  }, [isAuthenticated, token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadWishlist();
+    }, [loadWishlist])
+  );
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load();
+    await Promise.all([load(), loadWishlist()]);
     setRefreshing(false);
+  }, [load, loadWishlist]);
+
+  const onRetry = useCallback(async () => {
+    setLoading(true);
+    await load();
+    setLoading(false);
   }, [load]);
 
-  /* ---- optimistic mutations (still mocked) --------------------------- */
+  /* ---- wishlist toggle (real API, optimistic) ------------------------- */
+  const onToggleWishlist = useCallback(
+    async (id) => {
+      if (!isAuthenticated) {
+        Alert.alert('Log in required', 'Log in to save items to your wishlist.', [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Log in', onPress: () => router.push('/(auth)/login') },
+        ]);
+        return;
+      }
 
-  const onToggleWishlist = useCallback(async (id) => {
-    const currentlyIn = wishlist.includes(id);
-    const next = !currentlyIn;
-    setWishlist((prev) => (next ? [...prev, id] : prev.filter((x) => x !== id)));
-    try {
-      await toggleWishlist(id, next);
-    } catch {
-      setWishlist((prev) => (next ? prev.filter((x) => x !== id) : [...prev, id]));
-    }
-  }, [wishlist]);
+      if (wishlistPending.current.has(id)) return; // ignore rapid double-taps
+      wishlistPending.current.add(id);
 
+      const next = !wishlist.includes(id);
+
+      // optimistic
+      setWishlist((prev) => (next ? [...prev, id] : prev.filter((x) => x !== id)));
+
+      try {
+        if (next) await addToWishlistRequest(token, id);
+        else await removeFromWishlistRequest(token, id);
+      } catch (e) {
+        // rollback
+        setWishlist((prev) => (next ? prev.filter((x) => x !== id) : [...prev, id]));
+        Alert.alert(
+          'Wishlist',
+          e instanceof ApiError ? e.message : 'Could not update your wishlist.'
+        );
+      } finally {
+        wishlistPending.current.delete(id);
+      }
+    },
+    [wishlist, isAuthenticated, token]
+  );
+
+  /* ---- cart (still mocked) -------------------------------------------- */
   const onAddToCart = useCallback(async (id, qty = 1) => {
     setCart((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + qty }));
     try {
@@ -217,13 +280,14 @@ export default function Explore() {
     );
   }
 
-  if (error) {
+  // Full-screen error ONLY if we've never managed to load anything.
+  if (error && !hasData) {
     return (
       <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
         <StatusBar style="dark" />
         <Ionicons name="cloud-offline-outline" size={28} color={C.muted} />
         <Text style={styles.loaderText}>{error}</Text>
-        <Pressable onPress={onRefresh} style={styles.retryBtn}>
+        <Pressable onPress={onRetry} style={styles.retryBtn}>
           <Text style={styles.retryText}>Retry</Text>
         </Pressable>
       </SafeAreaView>
@@ -236,6 +300,7 @@ export default function Explore() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.muted} />
@@ -263,6 +328,17 @@ export default function Explore() {
             <Ionicons name="options-outline" size={20} color={C.ink} />
           </Pressable>
         </View>
+
+        {/* inline error (after the first successful load) */}
+        {!!error && hasData && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle" size={16} color={C.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable onPress={load} hitSlop={8}>
+              <Text style={styles.errorRetry}>Retry</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* categories */}
         <FlatList
@@ -375,7 +451,7 @@ export default function Explore() {
   );
 }
 
-/* --- pieces (unchanged) -------------------------------------------------- */
+/* --- pieces ------------------------------------------------------------- */
 
 function SectionHeader({ title, subtitle, actionLabel }) {
   return (
@@ -469,13 +545,17 @@ function HeartButton({ active, onPress }) {
   return (
     <Pressable style={styles.heart} onPress={handle} hitSlop={8}>
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons name={active ? 'heart' : 'heart-outline'} size={17} color={active ? '#E2445C' : C.ink} />
+        <Ionicons
+          name={active ? 'heart' : 'heart-outline'}
+          size={17}
+          color={active ? '#E2445C' : C.ink}
+        />
       </Animated.View>
     </Pressable>
   );
 }
 
-/* --- styles (unchanged) --------------------------------------------------- */
+/* --- styles ------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
@@ -483,6 +563,21 @@ const styles = StyleSheet.create({
   loaderText: { color: C.muted, fontSize: 13 },
   retryBtn: { marginTop: 6, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: C.ink, borderRadius: 20 },
   retryText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: '#FCE9EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  errorText: { flex: 1, color: C.danger, fontSize: 12, fontWeight: '600' },
+  errorRetry: { color: C.danger, fontSize: 12, fontWeight: '800' },
+
   searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 12 },
   searchField: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, borderRadius: 26, paddingHorizontal: 16, height: 48 },
   searchInput: { flex: 1, fontSize: 14, color: C.ink, padding: 0 },
