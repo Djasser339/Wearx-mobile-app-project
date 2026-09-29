@@ -66,6 +66,7 @@ const createProduct = async (req, res) => {
 
 // GET: list products with optional filters, sorting and pagination
 // Example: /products?category=Shirts&brand=Zara&minPrice=1000&sort=price_asc&page=1&limit=10
+// Search:  /products?search=nike  -> matches name OR brand (contains, ignore case)
 const getProducts = async (req, res) => {
   try {
     const { category, brand, tag, search, minPrice, maxPrice, sort } = req.query;
@@ -75,7 +76,13 @@ const getProducts = async (req, res) => {
     if (category) filter.category = String(category);
     if (tag) filter.tag = String(tag);
     if (brand) filter.brand = new RegExp(`^${escapeRegex(String(brand))}$`, "i"); // exact, ignore case
-    if (search) filter.name = new RegExp(escapeRegex(String(search)), "i"); // contains, ignore case
+
+    // Search by name OR brand (contains, ignore case)
+    const searchText = search ? String(search).trim() : "";
+    if (searchText) {
+      const rx = new RegExp(escapeRegex(searchText), "i");
+      filter.$or = [{ name: rx }, { brand: rx }];
+    }
 
     if (minPrice !== undefined || maxPrice !== undefined) {
       filter.price = {};
@@ -121,6 +128,18 @@ const getProducts = async (req, res) => {
       totalPages: Math.ceil(total / limit),
       data: products,
     });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// GET: list of distinct brands (used by the filter page)
+const getBrands = async (req, res) => {
+  try {
+    const brands = await Product.distinct("brand");
+    brands.sort((a, b) => a.localeCompare(b));
+
+    res.status(200).json({ success: true, data: brands });
   } catch (error) {
     handleError(res, error);
   }
@@ -203,6 +222,7 @@ const deleteProduct = async (req, res) => {
 module.exports = {
   createProduct,
   getProducts,
+  getBrands,
   getProductById,
   updateProduct,
   deleteProduct,

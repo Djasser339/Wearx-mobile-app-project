@@ -22,6 +22,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/auth-context';
 import { useCart } from '../../context/cart-context';
 import {
+  countActiveFilters,
+  resetFilters,
+  setFilters,
+  useFilters,
+} from '../../context/filters-store';
+import { CATEGORIES, CURRENCY, SORTS } from '../../constants/catalog';
+import {
   ApiError,
   addToWishlistRequest,
   getProductsRequest,
@@ -33,7 +40,6 @@ import {
  *  LOCAL CONTENT
  * ========================================================================= */
 
-const CURRENCY = 'DA';
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
 
 const HERO_HEIGHT = 240;
@@ -41,16 +47,7 @@ const HERO_GAP = 12;
 const HERO_INTERVAL = 5000; // ms between auto-advances
 const HERO_MAX = 4;
 
-// Matches the `category` enum on your Product schema.
-const CATEGORIES = [
-  { id: 'T-Shirts',    label: 'T-Shirts',    image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=300&q=70' },
-  { id: 'Shirts',      label: 'Shirts',      image: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=300&q=70' },
-  { id: 'Pants',       label: 'Pants',       image: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=300&q=70' },
-  { id: 'Shorts',      label: 'Shorts',      image: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=300&q=70' },
-  { id: 'Jackets',     label: 'Jackets',     image: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=300&q=70' },
-  { id: 'Shoes',       label: 'Shoes',       image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=300&q=70' },
-  { id: 'Accessories', label: 'Accessories', image: 'https://images.unsplash.com/photo-1611923134239-b9be5816e23f?w=300&q=70' },
-];
+const ALL_CATEGORY = { id: null, label: 'All' };
 
 /* ---- adapters: backend Product doc -> UI shape --------------------------- */
 
@@ -91,6 +88,12 @@ function mapHero(p) {
 
 const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
 
+function priceChipLabel(min, max) {
+  if (min && max) return `${Number(min).toLocaleString('en-US')} – ${Number(max).toLocaleString('en-US')} ${CURRENCY}`;
+  if (min) return `From ${Number(min).toLocaleString('en-US')} ${CURRENCY}`;
+  return `Up to ${Number(max).toLocaleString('en-US')} ${CURRENCY}`;
+}
+
 /* =========================================================================
  *  SCREEN
  * ========================================================================= */
@@ -118,38 +121,68 @@ export default function Explore() {
   const { token, isAuthenticated } = useAuth();
   const { count: cartCount } = useCart();
 
+  // filters live in a shared store so the /filters screen can edit them
+  const filters = useFilters();
+  const activeCategory = filters.category;
+  const activeCount = countActiveFilters(filters);
+
   const [arrivals, setArrivals] = useState([]);
   const [popularStyles, setPopularStyles] = useState([]);
   const [heroSlides, setHeroSlides] = useState([]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroPaused, setHeroPaused] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [hasData, setHasData] = useState(false);
 
   const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState(null);
   const [wishlist, setWishlist] = useState([]);
+
+  const isFiltering = activeCount > 0 || query.trim().length > 0;
 
   const requestId = useRef(0);
   const didMountSearch = useRef(false);
   const isFirstFocus = useRef(true);
   const wishlistPending = useRef(new Set());
   const heroRef = useRef(null);
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   /* ---- load products ------------------------------------------------- */
   const load = useCallback(async () => {
     const thisRequest = ++requestId.current;
+    const q = query.trim();
+    const filtering =
+      !!q || !!filters.category || !!filters.brand || !!filters.minPrice || !!filters.maxPrice || filters.sort !== 'newest';
+
+    setFetching(true);
     try {
       setError(null);
+
+      const arrivalsParams = {
+        category: filters.category || undefined,
+        search: q || undefined, // backend matches name OR brand
+        brand: filters.brand || undefined,
+        minPrice: filters.minPrice || undefined,
+        maxPrice: filters.maxPrice || undefined,
+        sort: filters.sort,
+        limit: filtering ? 30 : 8,
+      };
+
+      // While searching/filtering we only need the results list.
+      if (filtering) {
+        const res = await getProductsRequest(arrivalsParams);
+        if (thisRequest !== requestId.current) return;
+        setArrivals(res.data.map(mapProduct));
+        setTotal(res.total ?? res.data.length);
+        setHasData(true);
+        return;
+      }
+
       const [arrivalsRes, popularRes, featuredRes] = await Promise.all([
-        getProductsRequest({
-          category: activeCategory || undefined,
-          search: query.trim() || undefined,
-          sort: 'newest',
-          limit: 8,
-        }),
+        getProductsRequest(arrivalsParams),
         getProductsRequest({ tag: 'POPULAR', limit: 6 }),
         // Optional: products tagged FEATURED. If it fails, we just fall back.
         getProductsRequest({ tag: 'FEATURED', limit: HERO_MAX }).catch(() => ({ data: [] })),
@@ -165,14 +198,17 @@ export default function Explore() {
         [];
 
       setArrivals(arrivalsRes.data.map(mapProduct));
+      setTotal(arrivalsRes.total ?? arrivalsRes.data.length);
       setPopularStyles(popularRes.data.map(mapStyle));
       setHeroSlides(heroSource.slice(0, HERO_MAX).map(mapHero));
       setHasData(true);
     } catch (e) {
       if (thisRequest !== requestId.current) return;
       setError(e instanceof ApiError ? e.message : 'Could not load products.');
+    } finally {
+      if (thisRequest === requestId.current) setFetching(false);
     }
-  }, [activeCategory, query]);
+  }, [filters, query]);
 
   /* ---- load wishlist ids ------------------------------------------------ */
   const loadWishlist = useCallback(async () => {
@@ -189,12 +225,18 @@ export default function Explore() {
     }
   }, [isAuthenticated, token]);
 
-  /* ---- debounced re-fetch when search/category changes ------------------ */
+  // Always-fresh references so the focus effect never runs a stale closure.
+  const loadRef = useRef(load);
+  const loadWishlistRef = useRef(loadWishlist);
+  loadRef.current = load;
+  loadWishlistRef.current = loadWishlist;
+
+  /* ---- debounced re-fetch when search/filters change -------------------- */
   useEffect(() => {
     if (!didMountSearch.current) { didMountSearch.current = true; return; }
     const handle = setTimeout(() => { load(); }, 350);
     return () => clearTimeout(handle);
-  }, [query, activeCategory, load]);
+  }, [load]);
 
   /* ---- refresh EVERY time this tab is focused --------------------------- */
   useFocusEffect(
@@ -202,35 +244,44 @@ export default function Explore() {
       if (isFirstFocus.current) {
         isFirstFocus.current = false;
         (async () => {
-          await Promise.all([load(), loadWishlist()]);
+          await Promise.all([loadRef.current(), loadWishlistRef.current()]);
           setLoading(false);
         })();
       } else {
-        Promise.all([load(), loadWishlist()]);
+        Promise.all([loadRef.current(), loadWishlistRef.current()]);
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
-  /* ---- hero auto-advance ------------------------------------------------ */
+  /* ---- hero: live index from scroll position ---------------------------- */
+  const onHeroScroll = Animated.event(
+    [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+    {
+      useNativeDriver: false,
+      listener: (e) => {
+        const i = Math.round(e.nativeEvent.contentOffset.x / heroStep);
+        const clamped = Math.max(0, Math.min(i, heroSlides.length - 1));
+        setHeroIndex((prev) => (prev === clamped ? prev : clamped));
+      },
+    }
+  );
+
+  /* ---- hero: auto-advance (only scrolls; index comes from onScroll) ----- */
   useEffect(() => {
     if (heroSlides.length < 2 || heroPaused) return;
     const timer = setTimeout(() => {
       const next = (heroIndex + 1) % heroSlides.length;
       heroRef.current?.scrollToOffset({ offset: next * heroStep, animated: true });
-      setHeroIndex(next);
     }, HERO_INTERVAL);
     return () => clearTimeout(timer);
   }, [heroIndex, heroSlides.length, heroPaused, heroStep]);
 
-  const onHeroScrollEnd = useCallback(
-    (e) => {
-      const i = Math.round(e.nativeEvent.contentOffset.x / heroStep);
-      setHeroIndex(Math.max(0, Math.min(i, heroSlides.length - 1)));
-      setHeroPaused(false);
-    },
-    [heroStep, heroSlides.length]
-  );
+  /* ---- hero: reset when slide count changes or the hero re-mounts ------- */
+  useEffect(() => {
+    setHeroIndex(0);
+    scrollX.setValue(0);
+    heroRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [heroSlides.length, isFiltering, scrollX]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -243,6 +294,12 @@ export default function Explore() {
     await load();
     setLoading(false);
   }, [load]);
+
+  /* ---- clearing ---------------------------------------------------------- */
+  const clearAll = useCallback(() => {
+    setQuery('');
+    resetFilters();
+  }, []);
 
   /* ---- wishlist toggle (real API, optimistic) ------------------------- */
   const onToggleWishlist = useCallback(
@@ -279,6 +336,30 @@ export default function Explore() {
     (id) => router.push({ pathname: '/Productdetails', params: { id } }),
     []
   );
+  const openFilters = useCallback(() => router.push('/filters'), []);
+
+  /* ---- active filter chips (each one removable) ------------------------- */
+  const chips = [];
+  if (filters.category) {
+    chips.push({ key: 'category', label: filters.category, onRemove: () => setFilters({ category: null }) });
+  }
+  if (filters.brand) {
+    chips.push({ key: 'brand', label: filters.brand, onRemove: () => setFilters({ brand: null }) });
+  }
+  if (filters.minPrice || filters.maxPrice) {
+    chips.push({
+      key: 'price',
+      label: priceChipLabel(filters.minPrice, filters.maxPrice),
+      onRemove: () => setFilters({ minPrice: '', maxPrice: '' }),
+    });
+  }
+  if (filters.sort !== 'newest') {
+    chips.push({
+      key: 'sort',
+      label: SORTS.find((s) => s.id === filters.sort)?.label ?? filters.sort,
+      onRemove: () => setFilters({ sort: 'newest' }),
+    });
+  }
 
   /* ---- render ----------------------------------------------------------- */
 
@@ -305,8 +386,6 @@ export default function Explore() {
     );
   }
 
-  const activeDot = Math.min(heroIndex, heroSlides.length - 1);
-
   return (
     <SafeAreaView style={styles.screen} edges={[]}>
       <StatusBar style="dark" />
@@ -326,19 +405,26 @@ export default function Explore() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search t-shirts, jackets, shirts..."
+              placeholder="Search by name or brand"
               placeholderTextColor={C.muted}
               style={styles.searchInput}
               returnKeyType="search"
+              autoCorrect={false}
             />
+            {fetching && query.length > 0 && <ActivityIndicator size="small" color={C.muted} />}
             {query.length > 0 && (
               <Pressable onPress={() => setQuery('')} hitSlop={8}>
                 <Ionicons name="close-circle" size={17} color={C.muted} />
               </Pressable>
             )}
           </View>
-          <Pressable style={styles.filterBtn}>
+          <Pressable style={styles.filterBtn} onPress={openFilters}>
             <Ionicons name="options-outline" size={20} color={C.ink} />
+            {activeCount > 0 && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeCount}</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
@@ -354,20 +440,34 @@ export default function Explore() {
 
         {/* categories */}
         <FlatList
-          data={CATEGORIES}
-          keyExtractor={(item) => item.id}
+          data={[ALL_CATEGORY, ...CATEGORIES]}
+          keyExtractor={(item) => item.id ?? 'all'}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.catRow}
           renderItem={({ item }) => {
+            const isAll = item.id === null;
             const active = item.id === activeCategory;
             return (
               <Pressable
                 style={styles.cat}
-                onPress={() => setActiveCategory((prev) => (prev === item.id ? null : item.id))}
+                onPress={() =>
+                  setFilters({ category: isAll || active ? null : item.id })
+                }
               >
                 <View style={[styles.catRing, active && styles.catRingActive]}>
-                  <Image source={{ uri: item.image }} style={styles.catImage} />
+                  {isAll ? (
+                    <View style={[styles.catImage, styles.catAll]}>
+                      <Ionicons name="grid-outline" size={22} color={C.ink} />
+                    </View>
+                  ) : (
+                    <Image source={{ uri: item.image }} style={styles.catImage} />
+                  )}
+                  {active && !isAll && (
+                    <View style={styles.catX}>
+                      <Ionicons name="close" size={10} color="#fff" />
+                    </View>
+                  )}
                 </View>
                 <Text style={[styles.catLabel, active && styles.catLabelActive]}>
                   {item.label}
@@ -377,10 +477,25 @@ export default function Explore() {
           }}
         />
 
-        {/* hero carousel (hidden if there is nothing to show) */}
-        {heroSlides.length > 0 && (
+        {/* active filters (tap x to remove one) + clear all */}
+        {(chips.length > 0 || query.length > 0) && (
+          <View style={styles.chipsRow}>
+            {chips.map((c) => (
+              <Pressable key={c.key} style={styles.activeChip} onPress={c.onRemove} hitSlop={4}>
+                <Text style={styles.activeChipText}>{c.label}</Text>
+                <Ionicons name="close" size={13} color="#fff" />
+              </Pressable>
+            ))}
+            <Pressable onPress={clearAll} style={styles.clearRow} hitSlop={6}>
+              <Text style={styles.clearText}>Clear all</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* hero carousel (hidden while searching/filtering or if empty) */}
+        {!isFiltering && heroSlides.length > 0 && (
           <View>
-            <FlatList
+            <Animated.FlatList
               ref={heroRef}
               data={heroSlides}
               keyExtractor={(item) => item.id}
@@ -389,11 +504,13 @@ export default function Explore() {
               snapToInterval={heroStep}
               snapToAlignment="start"
               decelerationRate="fast"
+              scrollEventThrottle={16}
+              onScroll={onHeroScroll}
               contentContainerStyle={styles.heroList}
               ItemSeparatorComponent={() => <View style={{ width: HERO_GAP }} />}
               onScrollBeginDrag={() => setHeroPaused(true)}
               onScrollEndDrag={() => setHeroPaused(false)}
-              onMomentumScrollEnd={onHeroScrollEnd}
+              onMomentumScrollEnd={() => setHeroPaused(false)}
               getItemLayout={(_, index) => ({
                 length: heroStep,
                 offset: heroStep * index,
@@ -406,20 +523,43 @@ export default function Explore() {
 
             {heroSlides.length > 1 && (
               <View style={styles.heroDots}>
-                {heroSlides.map((s, i) => (
-                  <View key={s.id} style={[styles.heroDot, i === activeDot && styles.heroDotActive]} />
-                ))}
+                {heroSlides.map((s, i) => {
+                  const range = [(i - 1) * heroStep, i * heroStep, (i + 1) * heroStep];
+                  const w = scrollX.interpolate({
+                    inputRange: range,
+                    outputRange: [6, 18, 6],
+                    extrapolate: 'clamp',
+                  });
+                  const bg = scrollX.interpolate({
+                    inputRange: range,
+                    outputRange: ['#C4C8D0', C.ink, '#C4C8D0'],
+                    extrapolate: 'clamp',
+                  });
+                  return (
+                    <Animated.View
+                      key={s.id}
+                      style={[styles.heroDot, { width: w, backgroundColor: bg }]}
+                    />
+                  );
+                })}
               </View>
             )}
           </View>
         )}
 
-        {/* new arrivals */}
-        <SectionHeader
-          title="New Arrivals"
-          subtitle="Refined proportions for everyday cadence"
-          actionLabel="See all"
-        />
+        {/* new arrivals / results */}
+        {isFiltering ? (
+          <SectionHeader
+            title="Results"
+            subtitle={`${total} ${total === 1 ? 'item' : 'items'} found`}
+          />
+        ) : (
+          <SectionHeader
+            title="New Arrivals"
+            subtitle="Refined proportions for everyday cadence"
+            actionLabel="See all"
+          />
+        )}
 
         <View style={styles.grid}>
           {arrivals.map((item) => (
@@ -432,35 +572,43 @@ export default function Explore() {
               onPressCard={() => goToProduct(item.id)}
             />
           ))}
-          {arrivals.length === 0 && (
+          {arrivals.length === 0 && !fetching && (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>
                 {query ? `Nothing matches "${query}"` : 'No products found'}
               </Text>
-              <Text style={styles.emptyBody}>Try a different fabric, colour or fit.</Text>
+              <Text style={styles.emptyBody}>Try a different name, brand or filter.</Text>
+              {isFiltering && (
+                <Pressable onPress={clearAll} style={styles.emptyBtn}>
+                  <Text style={styles.emptyBtnText}>Clear search & filters</Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>
 
-        {/* popular styles */}
-        <SectionHeader title="Popular Styles" subtitle="Timeless essentials curated by demand" />
-
-        <FlatList
-          data={popularStyles}
-          keyExtractor={(item) => item.id}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.popularRow}
-          renderItem={({ item }) => (
-            <StyleCard
-              item={item}
-              width={width * 0.42}
-              wishlisted={wishlist.includes(item.id)}
-              onToggleWishlist={() => onToggleWishlist(item.id)}
-              onPressCard={() => goToProduct(item.id)}
+        {/* popular styles (hidden while searching/filtering) */}
+        {!isFiltering && popularStyles.length > 0 && (
+          <>
+            <SectionHeader title="Popular Styles" subtitle="Timeless essentials curated by demand" />
+            <FlatList
+              data={popularStyles}
+              keyExtractor={(item) => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.popularRow}
+              renderItem={({ item }) => (
+                <StyleCard
+                  item={item}
+                  width={width * 0.42}
+                  wishlisted={wishlist.includes(item.id)}
+                  onToggleWishlist={() => onToggleWishlist(item.id)}
+                  onPressCard={() => goToProduct(item.id)}
+                />
+              )}
             />
-          )}
-        />
+          </>
+        )}
 
         {cartCount > 0 && (
           <Text style={styles.cartNote}>
@@ -633,13 +781,24 @@ const styles = StyleSheet.create({
   searchField: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, borderRadius: 26, paddingHorizontal: 16, height: 48 },
   searchInput: { flex: 1, fontSize: 14, color: C.ink, padding: 0 },
   filterBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  filterBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  filterBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
   catRow: { paddingHorizontal: 16, paddingVertical: 18, gap: 18 },
   cat: { alignItems: 'center', width: 68 },
   catRing: { width: 62, height: 62, borderRadius: 31, padding: 2, borderWidth: 1.5, borderColor: 'transparent' },
   catRingActive: { borderColor: C.ink },
   catImage: { flex: 1, borderRadius: 29, backgroundColor: C.line },
+  catAll: { alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface },
+  catX: { position: 'absolute', top: -3, right: -3, width: 18, height: 18, borderRadius: 9, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
   catLabel: { marginTop: 8, fontSize: 10, letterSpacing: 0.8, color: C.muted, fontWeight: '600' },
   catLabelActive: { color: C.ink },
+
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 14 },
+  activeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.ink, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7 },
+  activeChipText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  clearRow: { paddingHorizontal: 6, paddingVertical: 7 },
+  clearText: { color: C.danger, fontSize: 12, fontWeight: '700' },
 
   /* hero carousel */
   heroList: { paddingHorizontal: 16 },
@@ -655,9 +814,8 @@ const styles = StyleSheet.create({
   heroPrice: { color: '#fff', fontSize: 16, fontWeight: '700' },
   heroCta: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10 },
   heroCtaText: { fontWeight: '700', fontSize: 13, color: C.ink },
-  heroDots: { flexDirection: 'row', alignSelf: 'center', gap: 6, marginTop: 12 },
-  heroDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C4C8D0' },
-  heroDotActive: { width: 18, backgroundColor: C.ink },
+  heroDots: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 6, marginTop: 12 },
+  heroDot: { height: 6, borderRadius: 3 },
 
   sectionHead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 30, marginBottom: 14 },
   sectionTitle: { fontFamily: serif, fontSize: 23, fontWeight: '700', color: C.ink },
@@ -687,4 +845,6 @@ const styles = StyleSheet.create({
   empty: { paddingVertical: 34, alignItems: 'center', width: '100%' },
   emptyTitle: { fontSize: 14, fontWeight: '600', color: C.ink },
   emptyBody: { fontSize: 12, color: C.muted, marginTop: 5 },
+  emptyBtn: { marginTop: 14, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 18, backgroundColor: C.ink },
+  emptyBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 });

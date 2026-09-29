@@ -134,6 +134,9 @@ export function getProductsRequest(params = {}) {
   ).toString();
   return apiRequest(`/products${query ? `?${query}` : ''}`, { method: 'GET' });
 }
+export function getBrandsRequest() {
+  return apiRequest('/products/brands', { method: 'GET' });
+}
 
 export function getProductByIdRequest(id) {
   return apiRequest(`/products/${id}`, { method: 'GET' });
