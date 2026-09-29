@@ -15,14 +15,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../context/auth-context';
+import { useAuth } from '../context/auth-context'; // adjust path if this file lives elsewhere
 import {
   ApiError,
   addToWishlistRequest,
   getProductByIdRequest,
   getWishlistRequest,
   removeFromWishlistRequest,
-} from '../../services/api';
+} from '../services/api'; // adjust path if needed
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CURRENCY = 'DA';
@@ -49,8 +49,12 @@ const C = {
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
-export default function ProductDetail() {
+export default function ProductDetails() {
+  // Since this is a plain file (not a [id] dynamic route), the id arrives
+  // as a normal query param. Navigate to this screen with:
+  //   router.push({ pathname: '/productdetails', params: { id: productId } })
   const { id } = useLocalSearchParams();
+
   const { token, isAuthenticated } = useAuth();
 
   const [product, setProduct] = useState(null);
@@ -65,6 +69,7 @@ export default function ProductDetail() {
   const [addingToCart, setAddingToCart] = useState(false);
 
   useEffect(() => {
+    if (!id) return;
     let alive = true;
     (async () => {
       try {
@@ -87,7 +92,7 @@ export default function ProductDetail() {
   // Check whether this product is already in the user's wishlist.
   useEffect(() => {
     let alive = true;
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !id) {
       setWishlisted(false);
       return;
     }
@@ -151,6 +156,19 @@ export default function ProductDetail() {
       setAddingToCart(false);
     }
   }, [product, qty, selectedColor, selectedSize]);
+
+  if (!id) {
+    return (
+      <SafeAreaView style={[styles.screen, styles.center]} edges={['top']}>
+        <StatusBar style="dark" />
+        <Ionicons name="alert-circle-outline" size={28} color={C.muted} />
+        <Text style={styles.errorText}>No product selected.</Text>
+        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>Go back</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
 
   if (loading) {
     return (

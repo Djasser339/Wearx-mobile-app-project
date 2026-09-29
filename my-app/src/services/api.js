@@ -153,3 +153,36 @@ export function removeFromWishlistRequest(token, productId) {
 export function clearWishlistRequest(token) {
   return apiRequest('/wishlist', { method: 'DELETE', token });
 }
+// ---- endpoints used by the Cart screen ----
+
+export function getCartRequest(token) {
+  return apiRequest('/cart', { method: 'GET', token });
+}
+
+export function addToCartRequest(token, { productId, quantity = 1, selectedSize, selectedColor }) {
+  return apiRequest('/cart', {
+    method: 'POST',
+    body: { productId, quantity, selectedSize, selectedColor },
+    token,
+  });
+}
+
+export function updateCartItemRequest(token, productId, { quantity, selectedSize, selectedColor }) {
+  return apiRequest(`/cart/items/${productId}`, {
+    method: 'PUT',
+    body: { quantity, selectedSize, selectedColor },
+    token,
+  });
+}
+
+export function removeFromCartRequest(token, productId, { selectedSize, selectedColor } = {}) {
+  return apiRequest(`/cart/items/${productId}`, {
+    method: 'DELETE',
+    body: { selectedSize, selectedColor },
+    token,
+  });
+}
+
+export function clearCartRequest(token) {
+  return apiRequest('/cart', { method: 'DELETE', token });
+}

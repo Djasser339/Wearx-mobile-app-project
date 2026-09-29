@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -12,10 +12,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '../../context/auth-context';
 import {
@@ -25,10 +24,9 @@ import {
 } from '../../services/api';
 
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
+const CURRENCY = 'DA';
 
-const formatPrice = (v) => `$${Number(v).toFixed(2)}`;
-
-/* ---- adapter: backend Product doc -> UI shape --------------------------- */
+const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
 
 function mapWishlistProduct(p) {
   return {
@@ -37,16 +35,10 @@ function mapWishlistProduct(p) {
     name: p.name,
     color: p.colors?.[0] ?? '',
     price: p.price,
-    tag: p.tag
-      ? { label: p.tag, tone: p.tag === 'NEW' ? 'dark' : 'sand' }
-      : null,
+    tag: p.tag ? { label: p.tag, tone: p.tag === 'NEW' ? 'dark' : 'sand' } : null,
     image: p.images?.[0] ?? PLACEHOLDER_IMAGE,
   };
 }
-
-/* =========================================================================
- *  THEME
- * ========================================================================= */
 
 const C = {
   bg: '#F5F6F8',
@@ -64,10 +56,6 @@ const C = {
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
-/* =========================================================================
- *  SCREEN
- * ========================================================================= */
-
 export default function Wishlist() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - 12) / 2;
@@ -78,25 +66,41 @@ export default function Wishlist() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
 
+  const isFirstFocus = useRef(true);
+  const removePending = useRef(new Set());
+
   const load = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setItems([]);
+      return;
+    }
     try {
       setError(null);
       const res = await getWishlistRequest(token);
+      if (removePending.current.size > 0) return; // don't clobber an optimistic removal in flight
       setItems((res.data?.products || []).map(mapWishlistProduct));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load your wishlist.');
     }
   }, [token, isAuthenticated]);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      await load();
-      if (alive) setLoading(false);
-    })();
-    return () => { alive = false; };
-  }, [load]);
+  /* Refresh every time this tab gains focus — first time shows the
+   * spinner, every time after that (e.g. after hearting something on
+   * Explore) refreshes silently. */
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        (async () => {
+          await load();
+          setLoading(false);
+        })();
+      } else {
+        load();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -105,20 +109,24 @@ export default function Wishlist() {
   }, [load]);
 
   const removeItem = useCallback(async (id) => {
-    // optimistic
+    if (removePending.current.has(id)) return;
+    removePending.current.add(id);
+
     const prev = items;
     setItems((cur) => cur.filter((x) => x.id !== id));
+
     try {
       await removeFromWishlistRequest(token, id);
     } catch (e) {
       setItems(prev); // rollback
       setError(e instanceof ApiError ? e.message : 'Could not remove that item.');
+    } finally {
+      removePending.current.delete(id);
     }
   }, [items, token]);
 
   const count = items.length;
 
-  /* ---- not logged in ---------------------------------------------------- */
   if (!isAuthenticated) {
     return (
       <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
@@ -155,7 +163,6 @@ export default function Wishlist() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.muted} />
         }
       >
-        {/* title */}
         <View style={styles.titleRow}>
           <Text style={styles.title}>Wishlist</Text>
           <View style={styles.countChip}>
@@ -172,7 +179,6 @@ export default function Wishlist() {
           </View>
         )}
 
-        {/* shipping banner */}
         <View style={styles.banner}>
           <Feather name="truck" size={20} color={C.body} />
           <Text style={styles.bannerText}>
@@ -180,7 +186,6 @@ export default function Wishlist() {
           </Text>
         </View>
 
-        {/* wishlist grid / empty state */}
         {count > 0 ? (
           <View style={styles.grid}>
             {items.map((item) => (
@@ -189,6 +194,7 @@ export default function Wishlist() {
                 item={item}
                 width={cardWidth}
                 onToggle={() => removeItem(item.id)}
+                onPressCard={() => router.push(`/product/${item.id}`)}
               />
             ))}
           </View>
@@ -211,22 +217,16 @@ export default function Wishlist() {
   );
 }
 
-/* =========================================================================
- *  PIECES
- * ========================================================================= */
-
-function WishCard({ item, width, onToggle }) {
+function WishCard({ item, width, onToggle, onPressCard }) {
   const imgW = width - 20;
   return (
-    <View style={[styles.card, { width }]}>
+    <Pressable style={[styles.card, { width }]} onPress={onPressCard}>
       <View style={[styles.media, { height: imgW * 1.32 }]}>
         <Image source={{ uri: item.image }} style={styles.mediaImg} />
         <HeartButton active onPress={onToggle} size={36} />
         {item.tag && (
           <View style={[styles.tag, item.tag.tone === 'dark' ? styles.tagDark : styles.tagSand]}>
-            <Text
-              style={[styles.tagText, { color: item.tag.tone === 'dark' ? '#fff' : C.body }]}
-            >
+            <Text style={[styles.tagText, { color: item.tag.tone === 'dark' ? '#fff' : C.body }]}>
               {item.tag.label}
             </Text>
           </View>
@@ -234,16 +234,12 @@ function WishCard({ item, width, onToggle }) {
       </View>
 
       <View style={styles.body}>
-        <Text style={styles.brandLabel} numberOfLines={1}>
-          {item.brand.toUpperCase()}
-        </Text>
-        <Text style={styles.name} numberOfLines={1}>
-          {item.name}
-        </Text>
+        <Text style={styles.brandLabel} numberOfLines={1}>{item.brand.toUpperCase()}</Text>
+        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
         {!!item.color && <Text style={styles.color}>{item.color}</Text>}
         <Text style={styles.price}>{formatPrice(item.price)}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -265,19 +261,11 @@ function HeartButton({ active, onPress, size = 34 }) {
       style={[styles.heart, { width: size, height: size, borderRadius: size / 2 }]}
     >
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons
-          name={active ? 'heart' : 'heart-outline'}
-          size={size * 0.5}
-          color={C.ink}
-        />
+        <Ionicons name={active ? 'heart' : 'heart-outline'} size={size * 0.5} color={C.ink} />
       </Animated.View>
     </Pressable>
   );
 }
-
-/* =========================================================================
- *  STYLES (unchanged from before, minus header/recently-viewed styles)
- * ========================================================================= */
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
@@ -296,21 +284,9 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, color: C.danger, fontSize: 12, fontWeight: '600' },
 
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    marginTop: 22,
-  },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, marginTop: 22 },
   title: { fontFamily: serif, fontSize: 34, fontWeight: '700', color: C.ink },
-  countChip: {
-    backgroundColor: C.chipBg,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    marginTop: 6,
-  },
+  countChip: { backgroundColor: C.chipBg, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5, marginTop: 6 },
   countText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.8, color: C.chipText },
 
   banner: {
@@ -340,14 +316,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tag: {
-    position: 'absolute',
-    left: 10,
-    bottom: 10,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
+  tag: { position: 'absolute', left: 10, bottom: 10, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5 },
   tagDark: { backgroundColor: C.ink },
   tagSand: { backgroundColor: C.sand },
   tagText: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
@@ -359,22 +328,9 @@ const styles = StyleSheet.create({
   price: { fontSize: 16, fontWeight: '700', color: C.ink, marginTop: 14 },
 
   empty: { alignItems: 'center', paddingHorizontal: 32, paddingVertical: 40 },
-  emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: C.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  emptyIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontFamily: serif, fontSize: 21, fontWeight: '700', color: C.ink, marginTop: 16 },
   emptyBody: { fontSize: 13, lineHeight: 19, color: C.muted, textAlign: 'center', marginTop: 8 },
-  emptyBtn: {
-    marginTop: 20,
-    backgroundColor: C.ink,
-    borderRadius: 26,
-    paddingHorizontal: 22,
-    paddingVertical: 13,
-  },
+  emptyBtn: { marginTop: 20, backgroundColor: C.ink, borderRadius: 26, paddingHorizontal: 22, paddingVertical: 13 },
   emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

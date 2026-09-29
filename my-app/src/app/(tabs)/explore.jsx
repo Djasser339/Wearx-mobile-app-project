@@ -32,7 +32,7 @@ import {
  *  LOCAL CONTENT — not backed by an endpoint yet
  * ========================================================================= */
 
-const CURRENCY = 'DA'; // change to '$' style formatting below if you prefer USD
+const CURRENCY = 'DA';
 
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
 
@@ -122,16 +122,17 @@ export default function Explore() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [hasData, setHasData] = useState(false); // true once any load has succeeded
+  const [hasData, setHasData] = useState(false);
 
   const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState(null); // null = all categories
-  const [wishlist, setWishlist] = useState([]); // product ids, sourced from the backend
+  const [activeCategory, setActiveCategory] = useState(null);
+  const [wishlist, setWishlist] = useState([]);
   const [cart, setCart] = useState({});
 
   const requestId = useRef(0);
-  const didMount = useRef(false);
-  const wishlistPending = useRef(new Set()); // product ids with a request in flight
+  const didMountSearch = useRef(false);
+  const isFirstFocus = useRef(true);
+  const wishlistPending = useRef(new Set());
 
   /* ---- load products ------------------------------------------------- */
   const load = useCallback(async () => {
@@ -148,7 +149,7 @@ export default function Explore() {
         getProductsRequest({ tag: 'POPULAR', limit: 6 }),
       ]);
 
-      if (thisRequest !== requestId.current) return; // superseded by a newer request
+      if (thisRequest !== requestId.current) return;
 
       setArrivals(arrivalsRes.data.map(mapProduct));
       setPopularStyles(popularRes.data.map(mapStyle));
@@ -159,25 +160,7 @@ export default function Explore() {
     }
   }, [activeCategory, query]);
 
-  // initial load
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      await load();
-      if (alive) setLoading(false);
-    })();
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // re-fetch (debounced) whenever search text or category changes
-  useEffect(() => {
-    if (!didMount.current) { didMount.current = true; return; }
-    const handle = setTimeout(() => { load(); }, 350);
-    return () => clearTimeout(handle);
-  }, [query, activeCategory, load]);
-
-  /* ---- load wishlist ids (on focus, so it stays in sync with the Wishlist tab) */
+  /* ---- load wishlist ids ------------------------------------------------ */
   const loadWishlist = useCallback(async () => {
     if (!isAuthenticated) {
       setWishlist([]);
@@ -185,18 +168,39 @@ export default function Explore() {
     }
     try {
       const res = await getWishlistRequest(token);
-      // Don't clobber an optimistic update that's still in flight.
-      if (wishlistPending.current.size > 0) return;
+      if (wishlistPending.current.size > 0) return; // don't clobber an optimistic update in flight
       setWishlist((res.data?.products || []).map((p) => p._id));
     } catch {
-      // non-fatal: hearts just start unfilled
+      // non-fatal — hearts just start unfilled
     }
   }, [isAuthenticated, token]);
 
+  /* ---- debounced re-fetch when search/category changes ------------------ */
+  useEffect(() => {
+    if (!didMountSearch.current) { didMountSearch.current = true; return; }
+    const handle = setTimeout(() => { load(); }, 350);
+    return () => clearTimeout(handle);
+  }, [query, activeCategory, load]);
+
+  /* ---- refresh EVERY time this tab is focused ---------------------------
+   * First focus (app open): shows the full-screen loader.
+   * Every later focus (switching tabs back here): refreshes silently
+   * in the background so stale/removed hearts or new stock show up
+   * without a manual pull-to-refresh.
+   */
   useFocusEffect(
     useCallback(() => {
-      loadWishlist();
-    }, [loadWishlist])
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        (async () => {
+          await Promise.all([load(), loadWishlist()]);
+          setLoading(false);
+        })();
+      } else {
+        Promise.all([load(), loadWishlist()]);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
   );
 
   const onRefresh = useCallback(async () => {
@@ -222,24 +226,18 @@ export default function Explore() {
         return;
       }
 
-      if (wishlistPending.current.has(id)) return; // ignore rapid double-taps
+      if (wishlistPending.current.has(id)) return;
       wishlistPending.current.add(id);
 
       const next = !wishlist.includes(id);
-
-      // optimistic
       setWishlist((prev) => (next ? [...prev, id] : prev.filter((x) => x !== id)));
 
       try {
         if (next) await addToWishlistRequest(token, id);
         else await removeFromWishlistRequest(token, id);
       } catch (e) {
-        // rollback
         setWishlist((prev) => (next ? prev.filter((x) => x !== id) : [...prev, id]));
-        Alert.alert(
-          'Wishlist',
-          e instanceof ApiError ? e.message : 'Could not update your wishlist.'
-        );
+        Alert.alert('Wishlist', e instanceof ApiError ? e.message : 'Could not update your wishlist.');
       } finally {
         wishlistPending.current.delete(id);
       }
@@ -268,6 +266,12 @@ export default function Explore() {
     [cart]
   );
 
+const goToProduct = useCallback(
+  (id) => router.push({ pathname: '/Productdetails', params: { id } }),
+  []
+);
+
+
   /* ---- render ----------------------------------------------------------- */
 
   if (loading) {
@@ -280,7 +284,6 @@ export default function Explore() {
     );
   }
 
-  // Full-screen error ONLY if we've never managed to load anything.
   if (error && !hasData) {
     return (
       <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
@@ -329,7 +332,6 @@ export default function Explore() {
           </Pressable>
         </View>
 
-        {/* inline error (after the first successful load) */}
         {!!error && hasData && (
           <View style={styles.errorBanner}>
             <Ionicons name="alert-circle" size={16} color={C.danger} />
@@ -398,6 +400,7 @@ export default function Explore() {
               wishlisted={wishlist.includes(item.id)}
               onToggleWishlist={() => onToggleWishlist(item.id)}
               onAdd={() => onAddToCart(item.id)}
+              onPressCard={() => goToProduct(item.id)}
             />
           ))}
           {arrivals.length === 0 && (
@@ -426,6 +429,7 @@ export default function Explore() {
               wishlisted={wishlist.includes(item.id)}
               onToggleWishlist={() => onToggleWishlist(item.id)}
               onAdd={() => onAddToCart(item.id)}
+              onPressCard={() => goToProduct(item.id)}
             />
           )}
         />
@@ -470,13 +474,18 @@ function SectionHeader({ title, subtitle, actionLabel }) {
   );
 }
 
-function ProductCard({ item, width, wishlisted, onToggleWishlist, onAdd }) {
+function ProductCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPressCard }) {
   const press = useRef(new Animated.Value(1)).current;
   const to = (v) => Animated.spring(press, { toValue: v, useNativeDriver: true, friction: 7 }).start();
 
   return (
     <Animated.View style={{ transform: [{ scale: press }] }}>
-      <Pressable onPressIn={() => to(0.97)} onPressOut={() => to(1)} style={[styles.card, { width }]}>
+      <Pressable
+        onPressIn={() => to(0.97)}
+        onPressOut={() => to(1)}
+        onPress={onPressCard}
+        style={[styles.card, { width }]}
+      >
         <View style={styles.cardMedia}>
           <Image source={{ uri: item.image }} style={styles.cardImage} />
           <HeartButton active={wishlisted} onPress={onToggleWishlist} />
@@ -508,9 +517,9 @@ function ProductCard({ item, width, wishlisted, onToggleWishlist, onAdd }) {
   );
 }
 
-function StyleCard({ item, width, wishlisted, onToggleWishlist, onAdd }) {
+function StyleCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPressCard }) {
   return (
-    <Pressable style={[styles.card, { width }]}>
+    <Pressable style={[styles.card, { width }]} onPress={onPressCard}>
       <View style={[styles.cardMedia, { height: width * 1.25 }]}>
         <Image source={{ uri: item.image }} style={styles.cardImage} />
         <HeartButton active={wishlisted} onPress={onToggleWishlist} />
