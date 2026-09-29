@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
-  Image,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,28 +12,27 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { router, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
+import Constants from 'expo-constants';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '../../context/auth-context';
-import {
-  ApiError,
-  addToWishlistRequest,
-  getProductByIdRequest,
-  getWishlistRequest,
-  removeFromWishlistRequest,
-} from '../../services/api';
+import { getMyOrdersRequest, getWishlistRequest } from '../../services/api';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CURRENCY = 'DA';
-const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
+/* =========================================================================
+ *  Menu rows — none of these have a real screen yet, so each just
+ *  acknowledges the tap instead of navigating somewhere broken.
+ * ========================================================================= */
 
-const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
+const MENU = [
+  { id: 'orders', icon: 'package', title: 'My Orders', sub: 'Track purchases & archival invoices' },
+  { id: 'addresses', icon: 'map-pin', title: 'Addresses', sub: 'Saved shipping & billing addresses' },
+  { id: 'payments', icon: 'credit-card', title: 'Payment Methods', sub: 'Cards & Apple Pay linked' },
+  { id: 'settings', icon: 'sliders', title: 'Account Settings', sub: 'Personal details & security keys' },
+  { id: 'notifications', icon: 'bell', title: 'Notifications', sub: 'Drop updates, restocks & concierge' },
+  { id: 'help', icon: 'headphones', title: 'Help & Support', sub: 'Direct concierge line & garment care FAQ' },
+];
 
-// Mocked until the cart backend exists — same pattern as Explore's addToCart.
-async function addToCartRequest(productId, qty, options) {
-  await new Promise((r) => setTimeout(r, 300));
-  return { productId, qty, options, ok: true };
-}
+const ACTIVE_STATUSES = new Set(['pending', 'confirmed', 'shipped']);
 
 const C = {
   bg: '#F5F6F8',
@@ -43,371 +41,406 @@ const C = {
   body: '#3B4049',
   muted: '#8B929C',
   line: '#ECEEF1',
-  chipBg: '#EDF0FA',
+  chipBg: '#E6EAF8',
+  iconBg: '#E9EDFB',
+  sand: '#F1E4C8',
   danger: '#C1272D',
 };
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
-export default function ProductDetail() {
-  const { id } = useLocalSearchParams();
-  const { token, isAuthenticated } = useAuth();
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
 
-  const [product, setProduct] = useState(null);
+export default function Profile() {
+  const { user, token, logout } = useAuth();
+
+  const [orders, setOrders] = useState([]);
+  const [wishlistCount, setWishlistCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [wishlisted, setWishlisted] = useState(false);
-  const [wishlistBusy, setWishlistBusy] = useState(false);
 
-  const [selectedColor, setSelectedColor] = useState(null);
-  const [selectedSize, setSelectedSize] = useState(null);
-  const [qty, setQty] = useState(1);
-  const [addingToCart, setAddingToCart] = useState(false);
+  const isFirstFocus = useRef(true);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setError(null);
-        const res = await getProductByIdRequest(id);
-        if (!alive) return;
-        setProduct(res.data);
-        if (res.data.colors?.length) setSelectedColor(res.data.colors[0]);
-        if (res.data.sizes?.length) setSelectedSize(res.data.sizes[0]);
-      } catch (e) {
-        if (!alive) return;
-        setError(e instanceof ApiError ? e.message : 'Could not load this product.');
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [id]);
-
-  // Check whether this product is already in the user's wishlist.
-  useEffect(() => {
-    let alive = true;
-    if (!isAuthenticated) {
-      setWishlisted(false);
-      return;
-    }
-    (async () => {
-      try {
-        const res = await getWishlistRequest(token);
-        if (!alive) return;
-        const ids = (res.data?.products || []).map((p) => p._id);
-        setWishlisted(ids.includes(id));
-      } catch {
-        // non-fatal
-      }
-    })();
-    return () => { alive = false; };
-  }, [id, isAuthenticated, token]);
-
-  const onToggleWishlist = useCallback(async () => {
-    if (!isAuthenticated) {
-      Alert.alert('Log in required', 'Log in to save items to your wishlist.', [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Log in', onPress: () => router.push('/(auth)/login') },
+  const load = useCallback(async () => {
+    try {
+      setError(null);
+      const [ordersRes, wishlistRes] = await Promise.all([
+        getMyOrdersRequest(token),
+        getWishlistRequest(token),
       ]);
-      return;
-    }
-    if (wishlistBusy) return;
-    setWishlistBusy(true);
-
-    const next = !wishlisted;
-    setWishlisted(next); // optimistic
-
-    try {
-      if (next) await addToWishlistRequest(token, id);
-      else await removeFromWishlistRequest(token, id);
+      setOrders(ordersRes.data || []);
+      setWishlistCount((wishlistRes.data?.products || []).length);
     } catch (e) {
-      setWishlisted(!next); // rollback
-      Alert.alert('Wishlist', e instanceof ApiError ? e.message : 'Could not update your wishlist.');
-    } finally {
-      setWishlistBusy(false);
+      setError(e?.message ?? 'Failed to load your account data');
     }
-  }, [isAuthenticated, wishlisted, wishlistBusy, token, id]);
+  }, [token]);
 
-  const onAddToCart = useCallback(async () => {
-    if (!product) return;
+  /* Refresh every time this tab gains focus — first time shows the
+   * spinner, every time after (e.g. after placing an order or hearting
+   * something elsewhere) refreshes silently in the background so the
+   * stats stay accurate without a manual pull-to-refresh. */
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        (async () => {
+          await load();
+          setLoading(false);
+        })();
+      } else {
+        load();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
 
-    if (product.colors?.length && !selectedColor) {
-      Alert.alert('Select a color', 'Please choose a color before adding to your bag.');
-      return;
-    }
-    if (product.sizes?.length && !selectedSize) {
-      Alert.alert('Select a size', 'Please choose a size before adding to your bag.');
-      return;
-    }
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
-    setAddingToCart(true);
-    try {
-      await addToCartRequest(product._id, qty, { color: selectedColor, size: selectedSize });
-      Alert.alert('Added to bag', `${product.name} (x${qty}) was added to your bag.`);
-    } catch {
-      Alert.alert('Error', 'Could not add this item to your bag. Please try again.');
-    } finally {
-      setAddingToCart(false);
-    }
-  }, [product, qty, selectedColor, selectedSize]);
+  const stats = useMemo(() => {
+    const activeOrders = orders.filter((o) => ACTIVE_STATUSES.has(o.status)).length;
+
+    // No address-book feature exists yet, so this counts distinct shipping
+    // addresses seen across past orders — a reasonable stand-in, not a
+    // real saved-addresses list.
+    const distinctAddresses = new Set(
+      orders
+        .filter((o) => o.shippingAddress)
+        .map((o) => `${o.shippingAddress.address}|${o.shippingAddress.city}`)
+    ).size;
+
+    return {
+      orders: orders.length,
+      activeOrders,
+      wishlist: wishlistCount,
+      addresses: distinctAddresses,
+    };
+  }, [orders, wishlistCount]);
+
+  const memberSince = user?.createdAt ? new Date(user.createdAt).getFullYear() : '—';
+  const canSellerStudio = user?.role && user.role !== 'customer';
+
+  const confirmLogout = () =>
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+          router.replace('/(auth)/login');
+        },
+      },
+    ]);
+
+  const comingSoon = (label) => Alert.alert(label, 'This isn\u2019t built yet — coming soon.');
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.screen, styles.center]} edges={['top']}>
+      <SafeAreaView style={[styles.screen, styles.loader]} edges={[]}>
         <StatusBar style="dark" />
         <ActivityIndicator color={C.ink} />
       </SafeAreaView>
     );
   }
 
-  if (error || !product) {
-    return (
-      <SafeAreaView style={[styles.screen, styles.center]} edges={['top']}>
-        <StatusBar style="dark" />
-        <Ionicons name="alert-circle-outline" size={28} color={C.muted} />
-        <Text style={styles.errorText}>{error || 'Product not found.'}</Text>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>Go back</Text>
-        </Pressable>
-      </SafeAreaView>
-    );
-  }
-
-  const images = product.images?.length ? product.images : [PLACEHOLDER_IMAGE];
-  const outOfStock = (product.stock ?? 0) <= 0;
-
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <SafeAreaView style={styles.screen} edges={[]}>
       <StatusBar style="dark" />
 
-      {/* floating header */}
-      <View style={styles.floatingHeader}>
-        <Pressable style={styles.iconBtn} onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="arrow-back" size={20} color={C.ink} />
-        </Pressable>
-        <Pressable style={styles.iconBtn} onPress={onToggleWishlist} hitSlop={8}>
-          <Ionicons
-            name={wishlisted ? 'heart' : 'heart-outline'}
-            size={20}
-            color={wishlisted ? '#E2445C' : C.ink}
-          />
-        </Pressable>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
-        {/* image gallery */}
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {images.map((uri, i) => (
-            <Image key={i} source={{ uri }} style={styles.heroImage} />
-          ))}
-        </ScrollView>
-
-        <View style={styles.content}>
-          <Text style={styles.brand}>{product.brand?.toUpperCase()}</Text>
-          <Text style={styles.name}>{product.name}</Text>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.price}>{formatPrice(product.price)}</Text>
-            {product.rating > 0 && (
-              <View style={styles.ratingChip}>
-                <Ionicons name="star" size={13} color={C.ink} />
-                <Text style={styles.ratingText}>
-                  {product.rating.toFixed(1)}
-                  {product.reviewCount > 0 ? ` (${product.reviewCount})` : ''}
-                </Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 28 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.muted} />
+        }
+      >
+        {/* identity */}
+        <View style={styles.identity}>
+          <View style={styles.avatarRing}>
+            {user?.avatar ? (
+              <View style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarInitials}>{getInitials(user?.name)}</Text>
               </View>
             )}
+            <Pressable
+              style={styles.cameraBtn}
+              hitSlop={6}
+              onPress={() => comingSoon('Profile photo upload')}
+            >
+              <Feather name="camera" size={14} color="#fff" />
+            </Pressable>
           </View>
 
-          <Text style={[styles.stockText, outOfStock && { color: C.danger }]}>
-            {outOfStock ? 'Out of stock' : `${product.stock} in stock`}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name}>{user?.name ?? '—'}</Text>
+          </View>
+          <Text style={styles.email}>{user?.email ?? ''}</Text>
 
-          {!!product.description && (
-            <Text style={styles.description}>{product.description}</Text>
-          )}
-
-          {/* colors */}
-          {product.colors?.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>COLOR</Text>
-              <View style={styles.chipRow}>
-                {product.colors.map((c) => {
-                  const active = c === selectedColor;
-                  return (
-                    <Pressable
-                      key={c}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => setSelectedColor(c)}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{c}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {/* sizes */}
-          {product.sizes?.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>SIZE</Text>
-              <View style={styles.chipRow}>
-                {product.sizes.map((s) => {
-                  const active = s === selectedSize;
-                  return (
-                    <Pressable
-                      key={s}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => setSelectedSize(s)}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{s}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {/* quantity */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>QUANTITY</Text>
-            <View style={styles.qtyRow}>
-              <Pressable
-                style={styles.qtyBtn}
-                onPress={() => setQty((q) => Math.max(1, q - 1))}
-                hitSlop={8}
-              >
-                <Ionicons name="remove" size={18} color={C.ink} />
-              </Pressable>
-              <Text style={styles.qtyText}>{qty}</Text>
-              <Pressable
-                style={styles.qtyBtn}
-                onPress={() => setQty((q) => Math.min(product.stock || 99, q + 1))}
-                hitSlop={8}
-              >
-                <Ionicons name="add" size={18} color={C.ink} />
-              </Pressable>
-            </View>
+          <View style={styles.memberChip}>
+            <View style={styles.memberDot} />
+            <Text style={styles.memberText}>MEMBER SINCE {memberSince}</Text>
           </View>
         </View>
-      </ScrollView>
 
-      {/* fixed add-to-cart footer */}
-      <View style={styles.footer}>
-        <Pressable
-          style={[styles.addToCartBtn, (outOfStock || addingToCart) && styles.addToCartBtnDisabled]}
-          onPress={onAddToCart}
-          disabled={outOfStock || addingToCart}
-        >
-          {addingToCart ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.addToCartText}>
-              {outOfStock ? 'Out of stock' : `Add to Bag · ${formatPrice(product.price * qty)}`}
-            </Text>
-          )}
+        {!!error && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle" size={16} color={C.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {/* stats */}
+        <View style={styles.stats}>
+          <Stat value={stats.orders} label="ORDERS" />
+          <Stat value={stats.wishlist} label="WISHLIST" />
+          <Stat value={stats.addresses} label="ADDRESSES" />
+        </View>
+
+        {/* seller studio — only relevant for non-customer roles */}
+        {canSellerStudio && (
+          <Pressable style={styles.studio} onPress={() => comingSoon('Seller Studio')}>
+            <View style={styles.studioCircle} />
+            <View style={{ flex: 1 }}>
+              <View style={styles.studioTop}>
+                <Text style={styles.studioEyebrow}>WEARX ATELIER</Text>
+                <View style={styles.proBadge}>
+                  <Text style={styles.proText}>{user.role.toUpperCase()}</Text>
+                </View>
+              </View>
+              <Text style={styles.studioTitle}>Seller Studio</Text>
+              <Text style={styles.studioSub}>Manage capsule drops, live inventory & orders</Text>
+            </View>
+            <View style={styles.studioArrow}>
+              <Feather name="arrow-right" size={18} color={C.ink} />
+            </View>
+          </Pressable>
+        )}
+
+        {/* menu */}
+        <View style={styles.menu}>
+          {MENU.map((item) => {
+            const badge =
+              item.id === 'orders' && stats.activeOrders > 0
+                ? `${stats.activeOrders} ACTIVE`
+                : null;
+            return (
+              <Pressable
+                key={item.id}
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+                onPress={() => comingSoon(item.title)}
+              >
+                <View style={styles.rowIcon}>
+                  <Feather name={item.icon} size={17} color={C.ink} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                  <Text style={styles.rowSub} numberOfLines={1}>
+                    {item.sub}
+                  </Text>
+                </View>
+                {!!badge && (
+                  <View style={styles.rowBadge}>
+                    <Text style={styles.rowBadgeText}>{badge}</Text>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={16} color={C.muted} />
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* log out */}
+        <Pressable style={styles.logout} onPress={confirmLogout}>
+          <Feather name="log-out" size={17} color={C.danger} />
+          <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
-      </View>
+
+        <Text style={styles.version}>WEARX V{Constants.expoConfig?.version ?? '1.0.0'}</Text>
+      </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function Stat({ value, label }) {
+  return (
+    <View style={styles.stat}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  center: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 32 },
-  errorText: { color: C.muted, fontSize: 13, textAlign: 'center' },
-  backBtn: { marginTop: 6, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: C.ink, borderRadius: 20 },
-  backBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  loader: { alignItems: 'center', justifyContent: 'center' },
 
-  floatingHeader: {
-    position: 'absolute',
-    top: 10,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  heroImage: { width: SCREEN_WIDTH, height: SCREEN_WIDTH * 1.15, backgroundColor: C.line },
-
-  content: { padding: 16 },
-  brand: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: C.muted },
-  name: { fontFamily: serif, fontSize: 24, fontWeight: '700', color: C.ink, marginTop: 6 },
-
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
-  price: { fontSize: 20, fontWeight: '700', color: C.ink },
-  ratingChip: {
+  errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: C.chipBg,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 14,
+    backgroundColor: '#FCE9EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  ratingText: { fontSize: 12, fontWeight: '700', color: C.ink },
+  errorText: { flex: 1, color: C.danger, fontSize: 12, fontWeight: '600' },
 
-  stockText: { fontSize: 12, color: C.muted, marginTop: 8, fontWeight: '600' },
-
-  description: { fontSize: 14, lineHeight: 21, color: C.body, marginTop: 16 },
-
-  section: { marginTop: 22 },
-  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: C.muted, marginBottom: 10 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 20,
+  identity: { alignItems: 'center', paddingTop: 20 },
+  avatarRing: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    padding: 3,
     backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.line,
   },
-  chipActive: { backgroundColor: C.ink, borderColor: C.ink },
-  chipText: { fontSize: 13, fontWeight: '600', color: C.ink },
-  chipTextActive: { color: '#fff' },
-
-  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 18 },
-  qtyBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  qtyText: { fontSize: 16, fontWeight: '700', color: C.ink, minWidth: 20, textAlign: 'center' },
-
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 16,
-    paddingBottom: 28,
-    backgroundColor: C.bg,
-    borderTopWidth: 1,
-    borderTopColor: C.line,
-  },
-  addToCartBtn: {
-    height: 52,
-    borderRadius: 26,
+  avatar: { width: '100%', height: '100%', borderRadius: 41, backgroundColor: C.line },
+  avatarFallback: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 41,
     backgroundColor: C.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addToCartBtnDisabled: { backgroundColor: C.muted },
-  addToCartText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  avatarInitials: { color: '#fff', fontSize: 26, fontWeight: '700' },
+  cameraBtn: {
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: C.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: C.bg,
+  },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 16 },
+  name: { fontFamily: serif, fontSize: 21, fontWeight: '700', color: C.ink },
+  email: { fontFamily: serif, fontSize: 13.5, color: C.body, marginTop: 4 },
+  memberChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 12,
+    backgroundColor: C.chipBg,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+  },
+  memberDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#5B6480' },
+  memberText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.9, color: C.ink },
+
+  stats: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 20,
+    paddingVertical: 16,
+    backgroundColor: C.surface,
+    borderRadius: 16,
+  },
+  stat: { flex: 1, alignItems: 'center' },
+  statValue: { fontFamily: serif, fontSize: 18, fontWeight: '700', color: C.ink },
+  statLabel: { fontSize: 10, fontWeight: '500', letterSpacing: 1.3, color: C.body, marginTop: 4 },
+
+  studio: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  studioCircle: {
+    position: 'absolute',
+    right: -40,
+    bottom: -50,
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  studioTop: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  studioEyebrow: { fontSize: 10, fontWeight: '600', letterSpacing: 1.3, color: '#9AA0A8' },
+  proBadge: { backgroundColor: '#fff', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
+  proText: { fontFamily: serif, fontSize: 10, fontWeight: '800', color: C.ink },
+  studioTitle: { fontFamily: serif, fontSize: 19, fontWeight: '700', color: '#fff', marginTop: 6 },
+  studioSub: { fontFamily: serif, fontSize: 12, color: '#9AA0A8', marginTop: 4, maxWidth: 220 },
+  studioArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  menu: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingVertical: 4,
+    backgroundColor: C.surface,
+    borderRadius: 16,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  rowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: C.iconBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowText: { flex: 1 },
+  rowTitle: { fontFamily: serif, fontSize: 15, color: C.ink },
+  rowSub: { fontFamily: serif, fontSize: 12, color: C.muted, marginTop: 2 },
+  rowBadge: { backgroundColor: C.sand, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 4 },
+  rowBadgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, color: C.ink },
+
+  logout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 16,
+    height: 48,
+    backgroundColor: C.surface,
+    borderRadius: 24,
+  },
+  logoutText: { fontSize: 14, fontWeight: '700', color: C.danger, letterSpacing: 0.4 },
+
+  version: {
+    textAlign: 'center',
+    marginTop: 14,
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 1.3,
+    color: C.muted,
+  },
 });

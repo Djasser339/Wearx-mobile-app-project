@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router, useFocusEffect } from 'expo-router';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/auth-context';
 import { useCart } from '../../context/cart-context';
 import {
@@ -30,12 +30,16 @@ import {
 } from '../../services/api';
 
 /* =========================================================================
- *  LOCAL CONTENT — not backed by an endpoint yet
+ *  LOCAL CONTENT
  * ========================================================================= */
 
 const CURRENCY = 'DA';
-
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
+
+const HERO_HEIGHT = 240;
+const HERO_GAP = 12;
+const HERO_INTERVAL = 5000; // ms between auto-advances
+const HERO_MAX = 4;
 
 // Matches the `category` enum on your Product schema.
 const CATEGORIES = [
@@ -47,19 +51,6 @@ const CATEGORIES = [
   { id: 'Shoes',       label: 'Shoes',       image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=300&q=70' },
   { id: 'Accessories', label: 'Accessories', image: 'https://images.unsplash.com/photo-1611923134239-b9be5816e23f?w=300&q=70' },
 ];
-
-const HERO = {
-  eyebrow: 'Spring / Summer 24',
-  title: 'The Linen &\nMinimalist Edition',
-  subtitle: 'Architectural silhouettes crafted from unbleached flax and fine spun cotton.',
-  cta: 'Explore collection',
-  image: 'https://images.unsplash.com/photo-1490114538077-0a7f8cb49891?w=1000&q=80',
-};
-
-const PROMO = {
-  title: 'Complimentary carbon-neutral shipping',
-  subtitle: 'On all domestic orders over $150',
-};
 
 /* ---- adapters: backend Product doc -> UI shape --------------------------- */
 
@@ -87,6 +78,17 @@ function mapStyle(p) {
   };
 }
 
+function mapHero(p) {
+  return {
+    id: p._id,
+    brand: p.brand,
+    name: p.name,
+    price: p.price,
+    label: p.tag === 'NEW' ? 'New in' : 'Featured',
+    image: p.images?.[0] ?? PLACEHOLDER_IMAGE,
+  };
+}
+
 const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
 
 /* =========================================================================
@@ -110,11 +112,17 @@ const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'seri
 export default function Explore() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - 12) / 2;
+  const heroWidth = width - 16 * 2;
+  const heroStep = heroWidth + HERO_GAP;
+
   const { token, isAuthenticated } = useAuth();
-  const { addItem, count: cartCount } = useCart();
+  const { count: cartCount } = useCart();
 
   const [arrivals, setArrivals] = useState([]);
   const [popularStyles, setPopularStyles] = useState([]);
+  const [heroSlides, setHeroSlides] = useState([]);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [heroPaused, setHeroPaused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -128,13 +136,14 @@ export default function Explore() {
   const didMountSearch = useRef(false);
   const isFirstFocus = useRef(true);
   const wishlistPending = useRef(new Set());
+  const heroRef = useRef(null);
 
   /* ---- load products ------------------------------------------------- */
   const load = useCallback(async () => {
     const thisRequest = ++requestId.current;
     try {
       setError(null);
-      const [arrivalsRes, popularRes] = await Promise.all([
+      const [arrivalsRes, popularRes, featuredRes] = await Promise.all([
         getProductsRequest({
           category: activeCategory || undefined,
           search: query.trim() || undefined,
@@ -142,12 +151,22 @@ export default function Explore() {
           limit: 8,
         }),
         getProductsRequest({ tag: 'POPULAR', limit: 6 }),
+        // Optional: products tagged FEATURED. If it fails, we just fall back.
+        getProductsRequest({ tag: 'FEATURED', limit: HERO_MAX }).catch(() => ({ data: [] })),
       ]);
 
       if (thisRequest !== requestId.current) return;
 
+      // Hero source: FEATURED -> POPULAR -> newest arrivals
+      const heroSource =
+        (featuredRes.data?.length && featuredRes.data) ||
+        (popularRes.data?.length && popularRes.data) ||
+        arrivalsRes.data ||
+        [];
+
       setArrivals(arrivalsRes.data.map(mapProduct));
       setPopularStyles(popularRes.data.map(mapStyle));
+      setHeroSlides(heroSource.slice(0, HERO_MAX).map(mapHero));
       setHasData(true);
     } catch (e) {
       if (thisRequest !== requestId.current) return;
@@ -177,12 +196,7 @@ export default function Explore() {
     return () => clearTimeout(handle);
   }, [query, activeCategory, load]);
 
-  /* ---- refresh EVERY time this tab is focused ---------------------------
-   * First focus (app open): shows the full-screen loader.
-   * Every later focus (switching tabs back here): refreshes silently
-   * in the background so stale/removed hearts or new stock show up
-   * without a manual pull-to-refresh.
-   */
+  /* ---- refresh EVERY time this tab is focused --------------------------- */
   useFocusEffect(
     useCallback(() => {
       if (isFirstFocus.current) {
@@ -196,6 +210,26 @@ export default function Explore() {
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+  );
+
+  /* ---- hero auto-advance ------------------------------------------------ */
+  useEffect(() => {
+    if (heroSlides.length < 2 || heroPaused) return;
+    const timer = setTimeout(() => {
+      const next = (heroIndex + 1) % heroSlides.length;
+      heroRef.current?.scrollToOffset({ offset: next * heroStep, animated: true });
+      setHeroIndex(next);
+    }, HERO_INTERVAL);
+    return () => clearTimeout(timer);
+  }, [heroIndex, heroSlides.length, heroPaused, heroStep]);
+
+  const onHeroScrollEnd = useCallback(
+    (e) => {
+      const i = Math.round(e.nativeEvent.contentOffset.x / heroStep);
+      setHeroIndex(Math.max(0, Math.min(i, heroSlides.length - 1)));
+      setHeroPaused(false);
+    },
+    [heroStep, heroSlides.length]
   );
 
   const onRefresh = useCallback(async () => {
@@ -240,25 +274,7 @@ export default function Explore() {
     [wishlist, isAuthenticated, token]
   );
 
-  /* ---- cart (real, shared via CartContext) ------------------------------ */
-  const onAddToCart = useCallback(
-    (item) => {
-      // Cards here only expose the mapped UI shape (single `image` string),
-      // so adapt it to the { images: [...] } shape CartContext expects.
-      addItem(
-        {
-          _id: item.id,
-          name: item.name,
-          brand: item.brand,
-          price: item.price,
-          images: [item.image],
-        },
-        1
-      );
-    },
-    [addItem]
-  );
-
+  /* ---- navigation ------------------------------------------------------- */
   const goToProduct = useCallback(
     (id) => router.push({ pathname: '/Productdetails', params: { id } }),
     []
@@ -288,6 +304,8 @@ export default function Explore() {
       </SafeAreaView>
     );
   }
+
+  const activeDot = Math.min(heroIndex, heroSlides.length - 1);
 
   return (
     <SafeAreaView style={styles.screen} edges={[]}>
@@ -359,22 +377,42 @@ export default function Explore() {
           }}
         />
 
-        {/* hero */}
-        <Pressable style={styles.hero}>
-          <Image source={{ uri: HERO.image }} style={styles.heroImage} />
-          <View style={styles.heroScrim} />
-          <View style={styles.heroContent}>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>{HERO.eyebrow.toUpperCase()}</Text>
-            </View>
-            <Text style={styles.heroTitle}>{HERO.title}</Text>
-            <Text style={styles.heroSub}>{HERO.subtitle}</Text>
-            <View style={styles.heroCta}>
-              <Text style={styles.heroCtaText}>{HERO.cta}</Text>
-              <Ionicons name="arrow-forward" size={16} color={C.ink} />
-            </View>
+        {/* hero carousel (hidden if there is nothing to show) */}
+        {heroSlides.length > 0 && (
+          <View>
+            <FlatList
+              ref={heroRef}
+              data={heroSlides}
+              keyExtractor={(item) => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={heroStep}
+              snapToAlignment="start"
+              decelerationRate="fast"
+              contentContainerStyle={styles.heroList}
+              ItemSeparatorComponent={() => <View style={{ width: HERO_GAP }} />}
+              onScrollBeginDrag={() => setHeroPaused(true)}
+              onScrollEndDrag={() => setHeroPaused(false)}
+              onMomentumScrollEnd={onHeroScrollEnd}
+              getItemLayout={(_, index) => ({
+                length: heroStep,
+                offset: heroStep * index,
+                index,
+              })}
+              renderItem={({ item }) => (
+                <HeroSlide item={item} width={heroWidth} onPress={() => goToProduct(item.id)} />
+              )}
+            />
+
+            {heroSlides.length > 1 && (
+              <View style={styles.heroDots}>
+                {heroSlides.map((s, i) => (
+                  <View key={s.id} style={[styles.heroDot, i === activeDot && styles.heroDotActive]} />
+                ))}
+              </View>
+            )}
           </View>
-        </Pressable>
+        )}
 
         {/* new arrivals */}
         <SectionHeader
@@ -391,7 +429,6 @@ export default function Explore() {
               width={cardWidth}
               wishlisted={wishlist.includes(item.id)}
               onToggleWishlist={() => onToggleWishlist(item.id)}
-              onAdd={() => onAddToCart(item)}
               onPressCard={() => goToProduct(item.id)}
             />
           ))}
@@ -420,22 +457,10 @@ export default function Explore() {
               width={width * 0.42}
               wishlisted={wishlist.includes(item.id)}
               onToggleWishlist={() => onToggleWishlist(item.id)}
-              onAdd={() => onAddToCart(item)}
               onPressCard={() => goToProduct(item.id)}
             />
           )}
         />
-
-        {/* promo */}
-        <View style={styles.promo}>
-          <View style={styles.promoIcon}>
-            <Feather name="truck" size={18} color={C.ink} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.promoTitle}>{PROMO.title}</Text>
-            <Text style={styles.promoSub}>{PROMO.subtitle}</Text>
-          </View>
-        </View>
 
         {cartCount > 0 && (
           <Text style={styles.cartNote}>
@@ -448,6 +473,31 @@ export default function Explore() {
 }
 
 /* --- pieces ------------------------------------------------------------- */
+
+function HeroSlide({ item, width, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.heroSlide, { width }]}>
+      <Image source={{ uri: item.image }} style={styles.heroImage} />
+      <View style={styles.heroScrim} />
+      <View style={styles.heroContent}>
+        <View style={styles.heroBadge}>
+          <Text style={styles.heroBadgeText}>{item.label.toUpperCase()}</Text>
+        </View>
+        <View>
+          <Text style={styles.heroBrand} numberOfLines={1}>{item.brand?.toUpperCase()}</Text>
+          <Text style={styles.heroTitle} numberOfLines={2}>{item.name}</Text>
+          <View style={styles.heroFoot}>
+            <Text style={styles.heroPrice}>{formatPrice(item.price)}</Text>
+            <View style={styles.heroCta}>
+              <Text style={styles.heroCtaText}>Shop now</Text>
+              <Ionicons name="arrow-forward" size={14} color={C.ink} />
+            </View>
+          </View>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
 
 function SectionHeader({ title, subtitle, actionLabel }) {
   return (
@@ -466,7 +516,7 @@ function SectionHeader({ title, subtitle, actionLabel }) {
   );
 }
 
-function ProductCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPressCard }) {
+function ProductCard({ item, width, wishlisted, onToggleWishlist, onPressCard }) {
   const press = useRef(new Animated.Value(1)).current;
   const to = (v) => Animated.spring(press, { toValue: v, useNativeDriver: true, friction: 7 }).start();
 
@@ -499,8 +549,8 @@ function ProductCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPress
           <Text style={styles.cardColor}>{item.color}</Text>
           <View style={styles.cardFoot}>
             <Text style={styles.cardPrice}>{formatPrice(item.price)}</Text>
-            <Pressable style={styles.addBtn} onPress={onAdd} hitSlop={6}>
-              <Ionicons name="add" size={18} color={C.ink} />
+            <Pressable style={styles.addBtn} onPress={onPressCard} hitSlop={6}>
+              <Ionicons name="arrow-forward" size={16} color={C.ink} />
             </Pressable>
           </View>
         </View>
@@ -509,7 +559,7 @@ function ProductCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPress
   );
 }
 
-function StyleCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPressCard }) {
+function StyleCard({ item, width, wishlisted, onToggleWishlist, onPressCard }) {
   return (
     <Pressable style={[styles.card, { width }]} onPress={onPressCard}>
       <View style={[styles.cardMedia, { height: width * 1.25 }]}>
@@ -525,8 +575,8 @@ function StyleCard({ item, width, wishlisted, onToggleWishlist, onAdd, onPressCa
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.cardFoot}>
           <Text style={styles.cardPrice}>{formatPrice(item.price)}</Text>
-          <Pressable onPress={onAdd} hitSlop={6}>
-            <Feather name="shopping-bag" size={17} color={C.ink} />
+          <Pressable onPress={onPressCard} hitSlop={6}>
+            <Ionicons name="arrow-forward" size={16} color={C.ink} />
           </Pressable>
         </View>
       </View>
@@ -590,16 +640,25 @@ const styles = StyleSheet.create({
   catImage: { flex: 1, borderRadius: 29, backgroundColor: C.line },
   catLabel: { marginTop: 8, fontSize: 10, letterSpacing: 0.8, color: C.muted, fontWeight: '600' },
   catLabelActive: { color: C.ink },
-  hero: { marginHorizontal: 16, height: 300, borderRadius: 18, overflow: 'hidden', backgroundColor: C.ink },
+
+  /* hero carousel */
+  heroList: { paddingHorizontal: 16 },
+  heroSlide: { height: HERO_HEIGHT, borderRadius: 18, overflow: 'hidden', backgroundColor: C.ink },
   heroImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
-  heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,17,21,0.42)' },
-  heroContent: { flex: 1, justifyContent: 'center', padding: 22 },
+  heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,17,21,0.38)' },
+  heroContent: { flex: 1, justifyContent: 'space-between', padding: 18 },
   heroBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
   heroBadgeText: { color: '#fff', fontSize: 10, letterSpacing: 1.2, fontWeight: '700' },
-  heroTitle: { color: '#fff', fontFamily: serif, fontSize: 30, lineHeight: 37, marginTop: 14, fontWeight: '600' },
-  heroSub: { color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 19, marginTop: 10, maxWidth: 290 },
-  heroCta: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 26, paddingHorizontal: 20, paddingVertical: 13, marginTop: 20 },
-  heroCtaText: { fontWeight: '700', fontSize: 14, color: C.ink },
+  heroBrand: { color: 'rgba(255,255,255,0.8)', fontSize: 11, letterSpacing: 1.2, fontWeight: '700' },
+  heroTitle: { color: '#fff', fontFamily: serif, fontSize: 24, lineHeight: 30, marginTop: 4, fontWeight: '600' },
+  heroFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },
+  heroPrice: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  heroCta: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10 },
+  heroCtaText: { fontWeight: '700', fontSize: 13, color: C.ink },
+  heroDots: { flexDirection: 'row', alignSelf: 'center', gap: 6, marginTop: 12 },
+  heroDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C4C8D0' },
+  heroDotActive: { width: 18, backgroundColor: C.ink },
+
   sectionHead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 30, marginBottom: 14 },
   sectionTitle: { fontFamily: serif, fontSize: 23, fontWeight: '700', color: C.ink },
   sectionSub: { fontSize: 12, color: C.muted, marginTop: 3 },
@@ -624,11 +683,7 @@ const styles = StyleSheet.create({
   cardPrice: { fontSize: 16, fontWeight: '700', color: C.ink },
   addBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.chipBg, alignItems: 'center', justifyContent: 'center' },
   popularRow: { paddingHorizontal: 16, gap: 12 },
-  promo: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: 16, marginTop: 28, padding: 16, borderRadius: 16, backgroundColor: C.accentSoft },
-  promoIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' },
-  promoTitle: { fontSize: 14, fontWeight: '700', color: C.ink, lineHeight: 19 },
-  promoSub: { fontSize: 12, color: C.body, marginTop: 3 },
-  cartNote: { textAlign: 'center', marginTop: 18, fontSize: 12, color: C.muted },
+  cartNote: { textAlign: 'center', marginTop: 24, fontSize: 12, color: C.muted },
   empty: { paddingVertical: 34, alignItems: 'center', width: '100%' },
   emptyTitle: { fontSize: 14, fontWeight: '600', color: C.ink },
   emptyBody: { fontSize: 12, color: C.muted, marginTop: 5 },

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Image,
   Platform,
   Pressable,
@@ -10,31 +9,26 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../context/auth-context'; // adjust path if this file lives elsewhere
+import { Ionicons, Feather } from '@expo/vector-icons';
+import { useAuth } from '../context/auth-context';
+import { useCart } from '../context/cart-context';
 import {
   ApiError,
   addToWishlistRequest,
   getProductByIdRequest,
   getWishlistRequest,
   removeFromWishlistRequest,
-} from '../services/api'; // adjust path if needed
+} from '../services/api';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CURRENCY = 'DA';
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
 
 const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
-
-// Mocked until the cart backend exists — same pattern as Explore's addToCart.
-async function addToCartRequest(productId, qty, options) {
-  await new Promise((r) => setTimeout(r, 300));
-  return { productId, qty, options, ok: true };
-}
 
 const C = {
   bg: '#F5F6F8',
@@ -50,12 +44,12 @@ const C = {
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
 export default function ProductDetails() {
-  // Since this is a plain file (not a [id] dynamic route), the id arrives
-  // as a normal query param. Navigate to this screen with:
-  //   router.push({ pathname: '/productdetails', params: { id: productId } })
   const { id } = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
 
   const { token, isAuthenticated } = useAuth();
+  const { addItem, count: cartCount } = useCart();
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,13 +61,16 @@ export default function ProductDetails() {
   const [selectedSize, setSelectedSize] = useState(null);
   const [qty, setQty] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
+  const [imageIndex, setImageIndex] = useState(0);
 
+  /* ---- load product ---------------------------------------------------- */
   useEffect(() => {
     if (!id) return;
     let alive = true;
     (async () => {
       try {
         setError(null);
+        setLoading(true);
         const res = await getProductByIdRequest(id);
         if (!alive) return;
         setProduct(res.data);
@@ -89,7 +86,7 @@ export default function ProductDetails() {
     return () => { alive = false; };
   }, [id]);
 
-  // Check whether this product is already in the user's wishlist.
+  /* ---- wishlist state -------------------------------------------------- */
   useEffect(() => {
     let alive = true;
     if (!isAuthenticated || !id) {
@@ -134,6 +131,7 @@ export default function ProductDetails() {
     }
   }, [isAuthenticated, wishlisted, wishlistBusy, token, id]);
 
+  /* ---- add to cart (real, via CartContext) ----------------------------- */
   const onAddToCart = useCallback(async () => {
     if (!product) return;
 
@@ -147,48 +145,77 @@ export default function ProductDetails() {
     }
 
     setAddingToCart(true);
-    try {
-      await addToCartRequest(product._id, qty, { color: selectedColor, size: selectedSize });
-      Alert.alert('Added to bag', `${product.name} (x${qty}) was added to your bag.`);
-    } catch {
-      Alert.alert('Error', 'Could not add this item to your bag. Please try again.');
-    } finally {
-      setAddingToCart(false);
-    }
-  }, [product, qty, selectedColor, selectedSize]);
+    // addItem never throws: it shows its own error alert and returns { ok: false }
+    const res = await addItem(product, qty, { size: selectedSize, color: selectedColor });
+    setAddingToCart(false);
 
+    if (res?.ok) {
+      Alert.alert('Added to bag', `${product.name} (x${qty}) was added to your bag.`, [
+        { text: 'Keep shopping', style: 'cancel' },
+        { text: 'View bag', onPress: () => router.push('/(tabs)/cart') },
+      ]);
+    }
+  }, [product, qty, selectedColor, selectedSize, addItem]);
+
+  /* ---- shared header (used in every state) ----------------------------- */
+  const header = (showActions) => (
+    <View style={[styles.floatingHeader, { top: insets.top + 8 }]} pointerEvents="box-none">
+      <Pressable style={styles.iconBtn} onPress={() => router.back()} hitSlop={8}>
+        <Ionicons name="arrow-back" size={20} color={C.ink} />
+      </Pressable>
+
+      {showActions && (
+        <View style={styles.headerRight}>
+          <Pressable style={styles.iconBtn} onPress={onToggleWishlist} hitSlop={8}>
+            <Ionicons
+              name={wishlisted ? 'heart' : 'heart-outline'}
+              size={20}
+              color={wishlisted ? '#E2445C' : C.ink}
+            />
+          </Pressable>
+          <Pressable style={styles.iconBtn} onPress={() => router.push('/(tabs)/cart')} hitSlop={8}>
+            <Feather name="shopping-bag" size={18} color={C.ink} />
+            {cartCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{cartCount > 99 ? '99+' : cartCount}</Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+
+  /* ---- states ---------------------------------------------------------- */
   if (!id) {
     return (
-      <SafeAreaView style={[styles.screen, styles.center]} edges={['top']}>
+      <View style={[styles.screen, styles.center]}>
         <StatusBar style="dark" />
+        {header(false)}
         <Ionicons name="alert-circle-outline" size={28} color={C.muted} />
         <Text style={styles.errorText}>No product selected.</Text>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>Go back</Text>
-        </Pressable>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.screen, styles.center]} edges={['top']}>
+      <View style={[styles.screen, styles.center]}>
         <StatusBar style="dark" />
+        {header(false)}
         <ActivityIndicator color={C.ink} />
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (error || !product) {
     return (
-      <SafeAreaView style={[styles.screen, styles.center]} edges={['top']}>
+      <View style={[styles.screen, styles.center]}>
         <StatusBar style="dark" />
+        {header(false)}
         <Ionicons name="alert-circle-outline" size={28} color={C.muted} />
         <Text style={styles.errorText}>{error || 'Product not found.'}</Text>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>Go back</Text>
-        </Pressable>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -196,30 +223,40 @@ export default function ProductDetails() {
   const outOfStock = (product.stock ?? 0) <= 0;
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <View style={styles.screen}>
       <StatusBar style="dark" />
 
-      {/* floating header */}
-      <View style={styles.floatingHeader}>
-        <Pressable style={styles.iconBtn} onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="arrow-back" size={20} color={C.ink} />
-        </Pressable>
-        <Pressable style={styles.iconBtn} onPress={onToggleWishlist} hitSlop={8}>
-          <Ionicons
-            name={wishlisted ? 'heart' : 'heart-outline'}
-            size={20}
-            color={wishlisted ? '#E2445C' : C.ink}
-          />
-        </Pressable>
-      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
+      >
+        {/* image gallery (full-bleed, header floats on top) */}
+        <View>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) =>
+              setImageIndex(Math.round(e.nativeEvent.contentOffset.x / width))
+            }
+          >
+            {images.map((uri, i) => (
+              <Image
+                key={i}
+                source={{ uri }}
+                style={{ width, height: width * 1.15, backgroundColor: C.line }}
+              />
+            ))}
+          </ScrollView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
-        {/* image gallery */}
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {images.map((uri, i) => (
-            <Image key={i} source={{ uri }} style={styles.heroImage} />
-          ))}
-        </ScrollView>
+          {images.length > 1 && (
+            <View style={styles.dots}>
+              {images.map((_, i) => (
+                <View key={i} style={[styles.dot, i === imageIndex && styles.dotActive]} />
+              ))}
+            </View>
+          )}
+        </View>
 
         <View style={styles.content}>
           <Text style={styles.brand}>{product.brand?.toUpperCase()}</Text>
@@ -312,8 +349,11 @@ export default function ProductDetails() {
         </View>
       </ScrollView>
 
+      {/* floating header, positioned below the status bar / notch */}
+      {header(true)}
+
       {/* fixed add-to-cart footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
         <Pressable
           style={[styles.addToCartBtn, (outOfStock || addingToCart) && styles.addToCartBtnDisabled]}
           onPress={onAddToCart}
@@ -328,7 +368,7 @@ export default function ProductDetails() {
           )}
         </Pressable>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -336,28 +376,53 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   center: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 32 },
   errorText: { color: C.muted, fontSize: 13, textAlign: 'center' },
-  backBtn: { marginTop: 6, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: C.ink, borderRadius: 20 },
-  backBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
 
   floatingHeader: {
     position: 'absolute',
-    top: 10,
     left: 16,
     right: 16,
     zIndex: 10,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
+  headerRight: { flexDirection: 'row', gap: 10 },
   iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  badge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: C.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  badgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
 
-  heroImage: { width: SCREEN_WIDTH, height: SCREEN_WIDTH * 1.15, backgroundColor: C.line },
+  dots: {
+    position: 'absolute',
+    bottom: 14,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.6)' },
+  dotActive: { width: 18, backgroundColor: '#fff' },
 
   content: { padding: 16 },
   brand: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: C.muted },
@@ -377,7 +442,6 @@ const styles = StyleSheet.create({
   ratingText: { fontSize: 12, fontWeight: '700', color: C.ink },
 
   stockText: { fontSize: 12, color: C.muted, marginTop: 8, fontWeight: '600' },
-
   description: { fontSize: 14, lineHeight: 21, color: C.body, marginTop: 16 },
 
   section: { marginTop: 22 },
@@ -413,8 +477,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 16,
-    paddingBottom: 28,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     backgroundColor: C.bg,
     borderTopWidth: 1,
     borderTopColor: C.line,
