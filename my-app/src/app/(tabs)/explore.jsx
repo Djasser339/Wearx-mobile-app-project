@@ -20,6 +20,7 @@ import { StatusBar } from 'expo-status-bar';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '../../context/auth-context';
+import { useCart } from '../../context/cart-context';
 import {
   ApiError,
   addToWishlistRequest,
@@ -78,18 +79,12 @@ function mapProduct(p) {
 function mapStyle(p) {
   return {
     id: p._id,
+    brand: p.brand,
     name: p.name,
     price: p.price,
     badge: p.stock <= 5 ? 'Low stock' : 'Best seller',
     image: p.images?.[0] ?? PLACEHOLDER_IMAGE,
   };
-}
-
-/* ---- cart is still mocked until you share the cart endpoints ------------- */
-
-async function addToCart(productId, qty = 1) {
-  await new Promise((r) => setTimeout(r, 150));
-  return { productId, qty, ok: true };
 }
 
 const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
@@ -116,6 +111,7 @@ export default function Explore() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - 12) / 2;
   const { token, isAuthenticated } = useAuth();
+  const { addItem, count: cartCount } = useCart();
 
   const [arrivals, setArrivals] = useState([]);
   const [popularStyles, setPopularStyles] = useState([]);
@@ -127,7 +123,6 @@ export default function Explore() {
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState(null);
   const [wishlist, setWishlist] = useState([]);
-  const [cart, setCart] = useState({});
 
   const requestId = useRef(0);
   const didMountSearch = useRef(false);
@@ -245,32 +240,29 @@ export default function Explore() {
     [wishlist, isAuthenticated, token]
   );
 
-  /* ---- cart (still mocked) -------------------------------------------- */
-  const onAddToCart = useCallback(async (id, qty = 1) => {
-    setCart((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + qty }));
-    try {
-      await addToCart(id, qty);
-    } catch {
-      setCart((prev) => {
-        const n = { ...prev };
-        const left = (n[id] ?? 0) - qty;
-        if (left <= 0) delete n[id];
-        else n[id] = left;
-        return n;
-      });
-    }
-  }, []);
-
-  const cartCount = useMemo(
-    () => Object.values(cart).reduce((a, b) => a + b, 0),
-    [cart]
+  /* ---- cart (real, shared via CartContext) ------------------------------ */
+  const onAddToCart = useCallback(
+    (item) => {
+      // Cards here only expose the mapped UI shape (single `image` string),
+      // so adapt it to the { images: [...] } shape CartContext expects.
+      addItem(
+        {
+          _id: item.id,
+          name: item.name,
+          brand: item.brand,
+          price: item.price,
+          images: [item.image],
+        },
+        1
+      );
+    },
+    [addItem]
   );
 
-const goToProduct = useCallback(
-  (id) => router.push({ pathname: '/Productdetails', params: { id } }),
-  []
-);
-
+  const goToProduct = useCallback(
+    (id) => router.push({ pathname: '/Productdetails', params: { id } }),
+    []
+  );
 
   /* ---- render ----------------------------------------------------------- */
 
@@ -399,7 +391,7 @@ const goToProduct = useCallback(
               width={cardWidth}
               wishlisted={wishlist.includes(item.id)}
               onToggleWishlist={() => onToggleWishlist(item.id)}
-              onAdd={() => onAddToCart(item.id)}
+              onAdd={() => onAddToCart(item)}
               onPressCard={() => goToProduct(item.id)}
             />
           ))}
@@ -428,7 +420,7 @@ const goToProduct = useCallback(
               width={width * 0.42}
               wishlisted={wishlist.includes(item.id)}
               onToggleWishlist={() => onToggleWishlist(item.id)}
-              onAdd={() => onAddToCart(item.id)}
+              onAdd={() => onAddToCart(item)}
               onPressCard={() => goToProduct(item.id)}
             />
           )}
