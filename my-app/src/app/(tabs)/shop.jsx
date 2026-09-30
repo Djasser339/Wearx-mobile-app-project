@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Image,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -12,18 +13,15 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
-
-/* =========================================================================
- *  DATA — swap for GET /api/products later
- * ========================================================================= */
-
-const CATEGORIES = ['All', 'T-Shirts', 'Shirts', 'Pants', 'Shorts', 'Jackets', 'Shoes', 'Accessories'];
-
-const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '30', '32', '34', '36', '40', '41', '42', '43', '44', 'One size'];
+import { CATEGORIES as PRODUCT_CATEGORIES, CURRENCY, SORTS as PRODUCT_SORTS } from '../../constants/catalog';
+import { countActiveFilters, DEFAULT_FILTERS, resetFilters, setFilters, useFilters } from '../../context/filters-store';
+import { useAuth } from '../../context/auth-context';
+import { ApiError, addToWishlistRequest, getProductsRequest, getWishlistRequest, removeFromWishlistRequest } from '../../services/api';
+import FilterModal from '../../components/filter-modal';
 
 const SWATCH = {
   Black: '#111318',
@@ -38,109 +36,24 @@ const SWATCH = {
   Stone: '#B8AFA0',
   Brown: '#7A5C46',
 };
-const COLOR_NAMES = Object.keys(SWATCH);
+const PAGE_SIZE = 50;
 
-const PRICE_RANGES = [
-  { label: 'Under $50', min: 0, max: 50 },
-  { label: '$50 – $99', min: 50, max: 100 },
-  { label: '$100 – $149', min: 100, max: 150 },
-  { label: '$150 & up', min: 150, max: Infinity },
-];
+const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
+const formatPrice = (v) => `${Number(v).toLocaleString('en-US')} ${CURRENCY}`;
 
-const SORTS = [
-  { id: 'featured', label: 'Featured' },
-  { id: 'priceAsc', label: 'Price: Low to High' },
-  { id: 'priceDesc', label: 'Price: High to Low' },
-  { id: 'rating', label: 'Top Rated' },
-  { id: 'newest', label: 'Newest' },
-];
-
-// Placeholder photos (re-used) — replace with your own product images.
-const u = (id) => `https://images.unsplash.com/${id}?w=700&q=80`;
-const IMG = {
-  overshirt: u('photo-1608063615781-e2ef8c9d25d4'),
-  bomber: u('photo-1551028719-00167b16eac5'),
-  tee1: u('photo-1583743814966-8936f37f4678'),
-  tee2: u('photo-1521572163474-6864f9cf17ab'),
-  oxford: u('photo-1598033129183-c4f50c736f10'),
-  shirt2: u('photo-1602810318383-e386cc2a3ccf'),
-  chino: u('photo-1473966968600-fa801b869a1a'),
-  pants2: u('photo-1594633312681-425c7b97ccd1'),
-  shorts: u('photo-1591195853828-11db59a44f6b'),
-  shoe1: u('photo-1549298916-b41d501d3772'),
-  shoe2: u('photo-1542291026-7eec264c27ff'),
-  knit: u('photo-1576871337622-98d48d1cf531'),
-};
-
-const P = (id, brand, name, category, price, colors, sizes, rating, reviews, tag, image) => ({
-  id, brand, name, category, price, colors, sizes, rating, reviews, tag, image,
+const mapProduct = (product) => ({
+  id: product._id,
+  brand: product.brand || '',
+  name: product.name || '',
+  category: product.category || '',
+  price: product.price,
+  colors: product.colors || [],
+  sizes: product.sizes || [],
+  rating: Number(product.rating) || 0,
+  reviews: Number(product.reviewCount) || 0,
+  tag: product.tag || null,
+  image: product.images?.[0] || PLACEHOLDER_IMAGE,
 });
-
-const LETTERS = ['S', 'M', 'L', 'XL'];
-
-const PRODUCTS = [
-  P('j1', 'Vanguard Studio', 'Minimalist Utility Overshirt', 'Jackets', 110, ['Olive', 'Black', 'Sand'], LETTERS, 4.8, 32, 'NEW', IMG.overshirt),
-  P('j2', 'Tailoring', 'Structured Wool-Blend Bomber', 'Jackets', 165, ['Charcoal', 'Navy'], ['M', 'L', 'XL'], 4.9, 45, null, IMG.bomber),
-  P('j3', 'Technical', 'Water-Resistant Shell Parka', 'Jackets', 195, ['Black'], ['M', 'L', 'XL', 'XXL'], 4.7, 19, 'POPULAR', IMG.bomber),
-  P('j4', 'Denim Line', 'Denim Trucker Jacket', 'Jackets', 120, ['Blue', 'White'], ['S', 'M', 'L'], 4.6, 28, null, IMG.overshirt),
-  P('j5', 'Essentials', 'Relaxed Coach Jacket', 'Jackets', 98, ['Stone', 'Black'], LETTERS, 4.8, 54, null, IMG.overshirt),
-  P('j6', 'Active Craft', 'Technical Zip Windbreaker', 'Jackets', 88, ['Green', 'Navy'], ['M', 'L'], 4.5, 12, null, IMG.bomber),
-
-  P('t1', 'Vanguard Core', 'Heavyweight Boxy Tee', 'T-Shirts', 48, ['Sand', 'Black', 'White'], LETTERS, 4.9, 120, 'POPULAR', IMG.tee1),
-  P('t2', 'Essentials', 'Classic Crew Neck Tee', 'T-Shirts', 32, ['White', 'Black', 'Navy'], ['S', 'M', 'L', 'XL', 'XXL'], 4.6, 88, null, IMG.tee2),
-  P('t3', 'Vanguard Studio', 'Pocket Linen Tee', 'T-Shirts', 42, ['Sand', 'Olive'], ['S', 'M', 'L'], 4.5, 17, 'NEW', IMG.tee1),
-
-  P('s1', 'Tailored Atelier', 'Relaxed Oxford Cotton Shirt', 'Shirts', 78, ['Blue', 'White'], LETTERS, 4.7, 41, 'NEW', IMG.oxford),
-  P('s2', 'Essentials', 'Linen Button-Down Shirt', 'Shirts', 68, ['Sand', 'White', 'Olive'], ['S', 'M', 'L'], 4.6, 23, null, IMG.shirt2),
-  P('s3', 'Tailoring', 'Slim Poplin Shirt', 'Shirts', 72, ['White', 'Navy'], ['M', 'L', 'XL'], 4.4, 15, null, IMG.oxford),
-
-  P('p1', 'Vanguard Studio', 'Pleated Straight-Leg Chino', 'Pants', 95, ['Charcoal', 'Sand'], ['30', '32', '34', '36'], 4.7, 36, null, IMG.chino),
-  P('p2', 'Essentials', 'Tapered Cargo Pants', 'Pants', 85, ['Olive', 'Black'], ['30', '32', '34'], 4.5, 22, null, IMG.pants2),
-  P('p3', 'Denim Line', 'Straight Selvedge Jeans', 'Pants', 115, ['Navy', 'Blue'], ['32', '34', '36'], 4.8, 30, 'POPULAR', IMG.pants2),
-
-  P('h1', 'Vanguard Core', 'Tailored Linen Shorts', 'Shorts', 62, ['Sand', 'Navy'], LETTERS, 4.5, 26, null, IMG.shorts),
-  P('h2', 'Active Craft', 'Technical Running Shorts', 'Shorts', 45, ['Black', 'Grey'], ['S', 'M', 'L'], 4.4, 14, null, IMG.shorts),
-
-  P('f1', 'Footwear', 'Suede Runner Shoes', 'Shoes', 130, ['White', 'Sand'], ['40', '41', '42', '43', '44'], 4.7, 33, 'NEW', IMG.shoe1),
-  P('f2', 'Footwear', 'Leather Court Sneakers', 'Shoes', 140, ['White', 'Black'], ['41', '42', '43'], 4.8, 47, null, IMG.shoe2),
-
-  P('a1', 'Accessories', 'Ribbed Merino Beanie', 'Accessories', 45, ['Stone', 'Charcoal'], ['One size'], 4.6, 21, null, IMG.knit),
-  P('a2', 'Accessories', 'Full-Grain Leather Belt', 'Accessories', 55, ['Brown', 'Black'], ['One size'], 4.7, 18, null, IMG.knit),
-];
-
-const EMPTY_FILTERS = { category: 'All', sizes: [], colors: [], price: null };
-const PAGE_SIZE = 6;
-
-const formatPrice = (v) => `$${Number(v).toFixed(2)}`;
-const toggleIn = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
-
-const sizesFor = (category) =>
-  SIZE_ORDER.filter((s) =>
-    PRODUCTS.some((p) => (category === 'All' || p.category === category) && p.sizes.includes(s))
-  );
-
-const matches = (p, f, q) => {
-  if (f.category !== 'All' && p.category !== f.category) return false;
-  if (f.sizes.length && !f.sizes.some((s) => p.sizes.includes(s))) return false;
-  if (f.colors.length && !f.colors.some((c) => p.colors.includes(c))) return false;
-  if (f.price !== null) {
-    const r = PRICE_RANGES[f.price];
-    if (p.price < r.min || p.price >= r.max) return false;
-  }
-  if (q && !`${p.name} ${p.brand} ${p.category}`.toLowerCase().includes(q)) return false;
-  return true;
-};
-
-const sortProducts = (list, sort) => {
-  const arr = [...list];
-  switch (sort) {
-    case 'priceAsc': return arr.sort((a, b) => a.price - b.price);
-    case 'priceDesc': return arr.sort((a, b) => b.price - a.price);
-    case 'rating': return arr.sort((a, b) => b.rating - a.rating);
-    case 'newest': return arr.sort((a, b) => (b.tag === 'NEW') - (a.tag === 'NEW'));
-    default: return arr;
-  }
-};
 
 /* =========================================================================
  *  THEME
@@ -167,55 +80,130 @@ const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'seri
 export default function Shop() {
   const { width } = useWindowDimensions();
   const params = useLocalSearchParams();
-
+  const { token, isAuthenticated } = useAuth();
+  const filters = useFilters();
+  const filterCount = countActiveFilters(filters);
   const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [sort, setSort] = useState('featured');
   const [layout, setLayout] = useState('grid'); // 'grid' | 'list'
-  const [wishlist, setWishlist] = useState(['j1']);
+  const [products, setProducts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [wishlist, setWishlist] = useState([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [sortOpen, setSortOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
+  const [error, setError] = useState(null);
+  const requestId = useRef(0);
+  const wishlistPending = useRef(new Set());
 
-  // Lets Home open the Shop pre-filtered:
-  // router.push({ pathname: '/(tabs)/shop', params: { category: 'Jackets' } })
   useEffect(() => {
-    if (typeof params.category === 'string' && CATEGORIES.includes(params.category)) {
-      setFilters((f) => ({ ...f, category: params.category }));
+    const categoryParam = Array.isArray(params.category) ? params.category[0] : params.category;
+    if (typeof categoryParam === 'string' && PRODUCT_CATEGORIES.some((category) => category.id === categoryParam)) {
+      setFilters({ category: categoryParam });
     }
   }, [params.category]);
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return sortProducts(PRODUCTS.filter((p) => matches(p, filters, q)), sort);
-  }, [query, filters, sort]);
+  const loadProducts = useCallback(async (page = 1, append = false) => {
+    const currentRequest = ++requestId.current;
+    setFetching(true);
+    try {
+      setError(null);
+      const result = await getProductsRequest({
+        search: query.trim() || undefined,
+        category: filters.category || undefined,
+        brand: filters.brand || undefined,
+        minPrice: filters.minPrice || undefined,
+        maxPrice: filters.maxPrice || undefined,
+        sizes: filters.sizes?.length ? filters.sizes : undefined,
+        colors: filters.colors?.length ? filters.colors : undefined,
+        sort: filters.sort,
+        limit: 50,
+        page,
+      });
+      if (currentRequest !== requestId.current) return;
+      const mappedProducts = (result.data || []).map(mapProduct);
+      setProducts((current) => append ? [...current, ...mappedProducts] : mappedProducts);
+      if (append) setVisibleCount((current) => current + mappedProducts.length);
+      setTotal(result.total ?? result.data?.length ?? 0);
+    } catch (requestError) {
+      if (currentRequest !== requestId.current) return;
+      setError(requestError instanceof ApiError ? requestError.message : 'Could not load products.');
+    } finally {
+      if (currentRequest === requestId.current) {
+        setFetching(false);
+        setLoading(false);
+      }
+    }
+  }, [filters, query]);
 
-  // back to the first page whenever the result set changes
-  useEffect(() => setVisibleCount(PAGE_SIZE), [query, filters, sort]);
+  const loadRef = useRef(loadProducts);
+  loadRef.current = loadProducts;
 
-  const visible = results.slice(0, visibleCount);
-  const remaining = results.length - visible.length;
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+    const timeout = setTimeout(() => loadProducts(1, false), 300);
+    return () => clearTimeout(timeout);
+  }, [loadProducts]);
 
-  const filterCount =
-    (filters.sizes.length ? 1 : 0) + (filters.colors.length ? 1 : 0) + (filters.price !== null ? 1 : 0);
+  useFocusEffect(useCallback(() => {
+    loadRef.current(1, false);
+    return undefined;
+  }, []));
 
-  const activeChips = [];
-  if (filters.category !== 'All')
-    activeChips.push({ key: 'cat', label: filters.category, clear: { category: 'All' } });
-  if (filters.sizes.length)
-    activeChips.push({ key: 'size', label: `Size: ${filters.sizes.join(', ')}`, clear: { sizes: [] } });
-  if (filters.colors.length)
-    activeChips.push({ key: 'color', label: `Color: ${filters.colors.join(', ')}`, clear: { colors: [] } });
-  if (filters.price !== null)
-    activeChips.push({ key: 'price', label: PRICE_RANGES[filters.price].label, clear: { price: null } });
+  useEffect(() => {
+    let alive = true;
+    if (!isAuthenticated) {
+      setWishlist([]);
+      return undefined;
+    }
+    getWishlistRequest(token)
+      .then((result) => {
+        if (alive && wishlistPending.current.size === 0) {
+          setWishlist((result.data?.products || []).map((product) => product._id));
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [isAuthenticated, token]);
 
-  const toggleWishlist = (id) => setWishlist((prev) => toggleIn(prev, id));
-  const openProduct = (id) => {
-    // TODO: router.push(`/product/${id}`) once the product details screen exists
+  const visible = products.slice(0, visibleCount);
+  const remaining = Math.max(total - visible.length, 0);
+  const categoryLabel = PRODUCT_CATEGORIES.find((category) => category.id === filters.category)?.label || 'All';
+  const sortLabel = PRODUCT_SORTS.find((option) => option.id === filters.sort)?.label || 'Newest';
+
+  const toggleWishlist = async (id) => {
+    if (!isAuthenticated) {
+      Alert.alert('Log in required', 'Log in to save items to your wishlist.', [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Log in', onPress: () => router.push('/(auth)/login') },
+      ]);
+      return;
+    }
+    if (wishlistPending.current.has(id)) return;
+    wishlistPending.current.add(id);
+    const wasSaved = wishlist.includes(id);
+    setWishlist((current) => wasSaved ? current.filter((itemId) => itemId !== id) : [...current, id]);
+    try {
+      if (wasSaved) await removeFromWishlistRequest(token, id);
+      else await addToWishlistRequest(token, id);
+    } catch (requestError) {
+      setWishlist((current) => wasSaved ? [...current, id] : current.filter((itemId) => itemId !== id));
+      Alert.alert('Wishlist', requestError instanceof ApiError ? requestError.message : 'Could not update your wishlist.');
+    } finally {
+      wishlistPending.current.delete(id);
+    }
   };
+  const openProduct = (id) => router.push({ pathname: '/Productdetails', params: { id } });
 
   const cardWidth = layout === 'grid' ? (width - 32 - 12) / 2 : width - 32;
-  const sortLabel = SORTS.find((s) => s.id === sort)?.label;
+  const activeChips = [
+    ...(filters.category ? [{ key: 'category', label: categoryLabel, clear: { category: null } }] : []),
+    ...(filters.brand ? [{ key: 'brand', label: filters.brand, clear: { brand: null } }] : []),
+    ...(filters.sizes?.length ? [{ key: 'sizes', label: `Size: ${filters.sizes.join(', ')}`, clear: { sizes: [] } }] : []),
+    ...(filters.colors?.length ? [{ key: 'colors', label: `Color: ${filters.colors.join(', ')}`, clear: { colors: [] } }] : []),
+    ...((filters.minPrice || filters.maxPrice) ? [{ key: 'price', label: `${filters.minPrice || '0'} – ${filters.maxPrice || 'Any'} ${CURRENCY}`, clear: { minPrice: '', maxPrice: '' } }] : []),
+    ...(filters.sort !== 'newest' ? [{ key: 'sort', label: sortLabel, clear: { sort: 'newest' } }] : []),
+  ];
 
   return (
     <SafeAreaView style={styles.screen} edges={[]}>
@@ -242,9 +230,9 @@ export default function Shop() {
 
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>
-            CATEGORY  <Text style={styles.metaValue}>{filters.category}</Text>
+            CATEGORY  <Text style={styles.metaValue}>{categoryLabel}</Text>
           </Text>
-          <Pressable style={styles.sortBtn} onPress={() => setSortOpen(true)} hitSlop={8}>
+          <Pressable style={styles.sortBtn} onPress={() => setFilterOpen(true)} hitSlop={8}>
             <Text style={styles.metaLabel}>
               Sort: <Text style={styles.metaValue}>{sortLabel}</Text>
             </Text>
@@ -257,18 +245,12 @@ export default function Shop() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.catRow}
         >
-          {CATEGORIES.map((c) => (
+          {[{ id: null, label: 'All' }, ...PRODUCT_CATEGORIES].map((category) => (
             <Chip
-              key={c}
-              label={c}
-              active={filters.category === c}
-              onPress={() =>
-                setFilters((f) => ({
-                  ...f,
-                  category: c,
-                  sizes: f.sizes.filter((s) => sizesFor(c).includes(s)),
-                }))
-              }
+              key={category.id || 'all'}
+              label={category.label}
+              active={filters.category === category.id}
+              onPress={() => setFilters({ category: filters.category === category.id ? null : category.id })}
             />
           ))}
         </ScrollView>
@@ -292,7 +274,7 @@ export default function Shop() {
                 <Feather name="x" size={13} color={C.ink} />
               </Pressable>
             ))}
-            <Pressable onPress={() => setFilters(EMPTY_FILTERS)} hitSlop={8}>
+            <Pressable onPress={resetFilters} hitSlop={8}>
               <Text style={styles.clearText}>Clear all</Text>
             </Pressable>
           </ScrollView>
@@ -300,7 +282,7 @@ export default function Shop() {
 
         {/* count + layout toggle */}
         <View style={styles.countRow}>
-          <Text style={styles.countText}>SHOWING {results.length} PRODUCTS</Text>
+            <Text style={styles.countText}>SHOWING {total} PRODUCTS</Text>
           <View style={styles.toggle}>
             <Pressable onPress={() => setLayout('grid')} hitSlop={8}>
               <Feather name="grid" size={18} color={layout === 'grid' ? C.ink : C.muted} />
@@ -312,7 +294,15 @@ export default function Shop() {
         </View>
 
         {/* products */}
-        {results.length > 0 ? (
+        {loading ? (
+          <View style={styles.empty}><ActivityIndicator color={C.ink} /></View>
+        ) : error && products.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Could not load products</Text>
+            <Text style={styles.emptyBody}>{error}</Text>
+            <Pressable style={styles.emptyBtn} onPress={() => loadProducts()}><Text style={styles.emptyBtnText}>Try again</Text></Pressable>
+          </View>
+        ) : visible.length > 0 ? (
           <View style={styles.grid}>
             {visible.map((item) => (
               <ProductCard
@@ -332,11 +322,11 @@ export default function Shop() {
               <Feather name="search" size={24} color={C.ink} />
             </View>
             <Text style={styles.emptyTitle}>No products found</Text>
-            <Text style={styles.emptyBody}>Try a different search or remove some filters.</Text>
+            <Text style={styles.emptyBody}>{error || 'Try a different search or remove some filters.'}</Text>
             <Pressable
               style={styles.emptyBtn}
               onPress={() => {
-                setFilters(EMPTY_FILTERS);
+                resetFilters();
                 setQuery('');
               }}
             >
@@ -348,30 +338,19 @@ export default function Shop() {
         {remaining > 0 && (
           <Pressable
             style={styles.loadMore}
-            onPress={() => setVisibleCount((n) => n + PAGE_SIZE)}
+            onPress={() => {
+              loadProducts(Math.floor(products.length / 50) + 1, true);
+            }}
           >
             <Text style={styles.loadMoreText}>
-              Load {remaining} more{filters.category !== 'All' ? ` ${filters.category}` : ''}
+              {fetching ? 'Loading...' : `Load ${remaining} more${filters.category ? ` ${categoryLabel}` : ''}`}
             </Text>
             <Ionicons name="chevron-down" size={16} color={C.ink} />
           </Pressable>
         )}
       </ScrollView>
 
-      <FilterSheet
-        visible={filterOpen}
-        value={filters}
-        query={query}
-        onClose={() => setFilterOpen(false)}
-        onApply={(next) => setFilters(next)}
-      />
-
-      <SortSheet
-        visible={sortOpen}
-        value={sort}
-        onClose={() => setSortOpen(false)}
-        onSelect={setSort}
-      />
+      <FilterModal visible={filterOpen} onClose={() => setFilterOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -490,148 +469,6 @@ function ProductCard({ item, width, layout, wishlisted, onToggleWishlist, onPres
         </View>
       </View>
     </Pressable>
-  );
-}
-
-function BottomSheet({ visible, onClose, title, children, footer }) {
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <View style={styles.grabber} />
-          <View style={styles.sheetHead}>
-            <Text style={styles.sheetTitle}>{title}</Text>
-            <Pressable onPress={onClose} hitSlop={10} style={styles.sheetClose}>
-              <Feather name="x" size={18} color={C.ink} />
-            </Pressable>
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
-            {children}
-          </ScrollView>
-          {footer}
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function FilterSheet({ visible, value, query, onClose, onApply }) {
-  const [draft, setDraft] = useState(value);
-
-  // start from the applied filters every time the sheet opens
-  useEffect(() => {
-    if (visible) setDraft(value);
-  }, [visible]);
-
-  const availableSizes = sizesFor(draft.category);
-  const count = PRODUCTS.filter((p) => matches(p, draft, query.trim().toLowerCase())).length;
-
-  const setCategory = (c) =>
-    setDraft((d) => ({
-      ...d,
-      category: c,
-      sizes: d.sizes.filter((s) => sizesFor(c).includes(s)),
-    }));
-
-  return (
-    <BottomSheet
-      visible={visible}
-      onClose={onClose}
-      title="Filters"
-      footer={
-        <View style={styles.sheetFoot}>
-          <Pressable onPress={() => setDraft(EMPTY_FILTERS)} hitSlop={8}>
-            <Text style={styles.resetText}>Reset</Text>
-          </Pressable>
-          <Pressable
-            style={styles.applyBtn}
-            onPress={() => {
-              onApply(draft);
-              onClose();
-            }}
-          >
-            <Text style={styles.applyText}>Show {count} products</Text>
-          </Pressable>
-        </View>
-      }
-    >
-      <Text style={styles.sectionLabel}>CATEGORY</Text>
-      <View style={styles.wrap}>
-        {CATEGORIES.map((c) => (
-          <Chip key={c} label={c} active={draft.category === c} onPress={() => setCategory(c)} />
-        ))}
-      </View>
-
-      <Text style={styles.sectionLabel}>PRICE</Text>
-      <View style={styles.wrap}>
-        {PRICE_RANGES.map((r, i) => (
-          <Chip
-            key={r.label}
-            label={r.label}
-            active={draft.price === i}
-            onPress={() => setDraft((d) => ({ ...d, price: d.price === i ? null : i }))}
-          />
-        ))}
-      </View>
-
-      <Text style={styles.sectionLabel}>SIZE</Text>
-      <View style={styles.wrap}>
-        {availableSizes.map((s) => (
-          <Chip
-            key={s}
-            label={s}
-            active={draft.sizes.includes(s)}
-            onPress={() => setDraft((d) => ({ ...d, sizes: toggleIn(d.sizes, s) }))}
-          />
-        ))}
-      </View>
-
-      <Text style={styles.sectionLabel}>COLOR</Text>
-      <View style={styles.wrap}>
-        {COLOR_NAMES.map((name) => {
-          const active = draft.colors.includes(name);
-          return (
-            <Pressable
-              key={name}
-              style={styles.swatchWrap}
-              onPress={() => setDraft((d) => ({ ...d, colors: toggleIn(d.colors, name) }))}
-            >
-              <View style={[styles.swatchRing, active && styles.swatchRingActive]}>
-                <View style={[styles.swatch, { backgroundColor: SWATCH[name] }]} />
-              </View>
-              <Text style={[styles.swatchLabel, active && { color: C.ink, fontWeight: '700' }]}>
-                {name}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </BottomSheet>
-  );
-}
-
-function SortSheet({ visible, value, onClose, onSelect }) {
-  return (
-    <BottomSheet visible={visible} onClose={onClose} title="Sort by">
-      {SORTS.map((s) => {
-        const active = s.id === value;
-        return (
-          <Pressable
-            key={s.id}
-            style={styles.sortRow}
-            onPress={() => {
-              onSelect(s.id);
-              onClose();
-            }}
-          >
-            <Text style={[styles.sortText, active && { fontWeight: '700' }]}>{s.label}</Text>
-            {active && <Feather name="check" size={18} color={C.ink} />}
-          </Pressable>
-        );
-      })}
-    </BottomSheet>
   );
 }
 
@@ -798,87 +635,4 @@ const styles = StyleSheet.create({
   },
   emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
-  /* bottom sheet */
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,17,21,0.45)' },
-  sheet: {
-    maxHeight: '85%',
-    backgroundColor: C.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  grabber: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: C.line,
-  },
-  sheetHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-  },
-  sheetTitle: { fontFamily: serif, fontSize: 21, fontWeight: '700', color: C.ink },
-  sheetClose: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: C.chip,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1.4,
-    color: C.muted,
-    marginTop: 18,
-    marginBottom: 10,
-  },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-
-  swatchWrap: { width: 58, alignItems: 'center', gap: 5 },
-  swatchRing: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    padding: 3,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  swatchRingActive: { borderColor: C.ink },
-  swatch: { flex: 1, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)' },
-  swatchLabel: { fontSize: 11, color: C.muted },
-
-  sheetFoot: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 20,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: C.line,
-  },
-  resetText: { fontSize: 14, fontWeight: '600', color: C.body, textDecorationLine: 'underline' },
-  applyBtn: {
-    flex: 1,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  applyText: { color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
-
-  sortRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: C.line,
-  },
-  sortText: { fontSize: 15, color: C.ink },
 });

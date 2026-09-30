@@ -174,7 +174,8 @@ export default function Explore() {
     const thisRequest = ++requestId.current;
     const q = query.trim();
     const filtering =
-      !!q || !!filters.category || !!filters.brand || !!filters.minPrice || !!filters.maxPrice || filters.sort !== 'newest';
+      !!q || !!filters.category || !!filters.brand || !!filters.minPrice || !!filters.maxPrice ||
+      filters.sizes?.length > 0 || filters.colors?.length > 0 || filters.sort !== 'newest';
 
     setFetching(true);
     try {
@@ -186,6 +187,8 @@ export default function Explore() {
         brand: filters.brand || undefined,
         minPrice: filters.minPrice || undefined,
         maxPrice: filters.maxPrice || undefined,
+        sizes: filters.sizes?.length ? filters.sizes : undefined,
+        colors: filters.colors?.length ? filters.colors : undefined,
         sort: filters.sort,
         limit: filtering ? 30 : 8,
       };
@@ -377,6 +380,12 @@ export default function Explore() {
   }
   if (filters.brand) {
     chips.push({ key: 'brand', label: filters.brand, onRemove: () => setFilters({ brand: null }) });
+  }
+  if (filters.sizes?.length) {
+    chips.push({ key: 'sizes', label: `Size: ${filters.sizes.join(', ')}`, onRemove: () => setFilters({ sizes: [] }) });
+  }
+  if (filters.colors?.length) {
+    chips.push({ key: 'colors', label: `Color: ${filters.colors.join(', ')}`, onRemove: () => setFilters({ colors: [] }) });
   }
   if (filters.minPrice || filters.maxPrice) {
     chips.push({

@@ -10,6 +10,8 @@ export const DEFAULT_FILTERS = {
   minPrice: '',
   maxPrice: '',
   brand: null,
+  sizes: [],
+  colors: [],
 };
 
 let state = DEFAULT_FILTERS;
@@ -42,6 +44,8 @@ export function countActiveFilters(f) {
     (f.brand ? 1 : 0) +
     (f.sort !== 'newest' ? 1 : 0) +
     (f.minPrice ? 1 : 0) +
-    (f.maxPrice ? 1 : 0)
+    (f.maxPrice ? 1 : 0) +
+    (f.sizes?.length ? 1 : 0) +
+    (f.colors?.length ? 1 : 0)
   );
 }

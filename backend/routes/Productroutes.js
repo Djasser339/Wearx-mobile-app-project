@@ -5,6 +5,7 @@ const { protect, authorize } = require("../middleware/authMiddleware");
 const {
   createProduct,
   getProducts,
+  getBrands,
   getProductById,
   updateProduct,
   deleteProduct,
@@ -14,6 +15,7 @@ const {
 
 router.post("/", protect, authorize("admin", "seller"), createProduct); // POST   /api/products
 router.get("/", getProducts); // GET    /api/products  (?category=, ?search=, ...)
+router.get("/brands", getBrands); // GET   /api/products/brands
 router.get("/:id", getProductById); // GET    /api/products/:id
 router.put("/:id", protect, authorize("admin", "seller"), updateProduct); // PUT    /api/products/:id
 router.delete("/:id", protect, authorize("admin", "seller"), deleteProduct); // DELETE /api/products/:id

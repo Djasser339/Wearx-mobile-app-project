@@ -129,8 +129,13 @@ export function getWishlistRequest(token) {
 // ---- endpoints used by the Explore screen ----
 
 export function getProductsRequest(params = {}) {
+  const normalizedParams = {
+    ...params,
+    sizes: Array.isArray(params.sizes) ? params.sizes.join(',') : params.sizes,
+    colors: Array.isArray(params.colors) ? params.colors.join(',') : params.colors,
+  };
   const query = new URLSearchParams(
-    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    Object.entries(normalizedParams).filter(([, v]) => v !== undefined && v !== null && v !== '')
   ).toString();
   return apiRequest(`/products${query ? `?${query}` : ''}`, { method: 'GET' });
 }

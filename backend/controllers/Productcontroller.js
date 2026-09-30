@@ -69,13 +69,15 @@ const createProduct = async (req, res) => {
 // Search:  /products?search=nike  -> matches name OR brand (contains, ignore case)
 const getProducts = async (req, res) => {
   try {
-    const { category, brand, tag, search, minPrice, maxPrice, sort } = req.query;
+    const { category, brand, tag, search, minPrice, maxPrice, sort, sizes, colors } = req.query;
 
     // Build the MongoDB filter step by step
     const filter = {};
     if (category) filter.category = String(category);
     if (tag) filter.tag = String(tag);
     if (brand) filter.brand = new RegExp(`^${escapeRegex(String(brand))}$`, "i"); // exact, ignore case
+    if (sizes) filter.sizes = { $in: String(sizes).split(",").filter(Boolean) };
+    if (colors) filter.colors = { $in: String(colors).split(",").filter(Boolean) };
 
     // Search by name OR brand (contains, ignore case)
     const searchText = search ? String(search).trim() : "";

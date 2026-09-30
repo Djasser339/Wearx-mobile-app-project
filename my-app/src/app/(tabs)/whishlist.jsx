@@ -179,12 +179,6 @@ export default function Wishlist() {
           </View>
         )}
 
-        <View style={styles.banner}>
-          <Feather name="truck" size={20} color={C.body} />
-          <Text style={styles.bannerText}>
-            Complimentary express shipping on orders over $150
-          </Text>
-        </View>
 
         {count > 0 ? (
           <View style={styles.grid}>

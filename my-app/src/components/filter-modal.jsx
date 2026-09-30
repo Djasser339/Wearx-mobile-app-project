@@ -34,6 +34,8 @@ const C = {
 
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 const digits = (t) => t.replace(/[^0-9]/g, '');
+const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '30', '32', '34', '36', '40', '41', '42', '43', '44', 'One size'];
+const COLORS = ['Black', 'Charcoal', 'Grey', 'White', 'Navy', 'Blue', 'Green', 'Olive', 'Sand', 'Stone', 'Brown'];
 
 export default function FilterModal({ visible, onClose }) {
   const insets = useSafeAreaInsets();
@@ -183,6 +185,36 @@ export default function FilterModal({ visible, onClose }) {
                     style={styles.priceInput}
                   />
                 </View>
+              </View>
+
+              {/* Size */}
+              <Text style={styles.label}>Size</Text>
+              <View style={styles.chipWrap}>
+                {SIZES.map((size) => (
+                  <Chip
+                    key={size}
+                    label={size}
+                    active={draft.sizes.includes(size)}
+                    onPress={() => set('sizes', draft.sizes.includes(size)
+                      ? draft.sizes.filter((value) => value !== size)
+                      : [...draft.sizes, size])}
+                  />
+                ))}
+              </View>
+
+              {/* Color */}
+              <Text style={styles.label}>Color</Text>
+              <View style={styles.chipWrap}>
+                {COLORS.map((color) => (
+                  <Chip
+                    key={color}
+                    label={color}
+                    active={draft.colors.includes(color)}
+                    onPress={() => set('colors', draft.colors.includes(color)
+                      ? draft.colors.filter((value) => value !== color)
+                      : [...draft.colors, color])}
+                  />
+                ))}
               </View>
 
               {/* Brand */}
