@@ -31,10 +31,12 @@ import { CATEGORIES, CURRENCY, SORTS } from '../../constants/catalog';
 import {
   ApiError,
   addToWishlistRequest,
+  getBrandsRequest,
   getProductsRequest,
   getWishlistRequest,
   removeFromWishlistRequest,
 } from '../../services/api';
+import FilterModal from '../../components/filter-modal';
 
 /* =========================================================================
  *  LOCAL CONTENT
@@ -42,10 +44,19 @@ import {
 
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/700x900.png?text=No+Image';
 
-const HERO_HEIGHT = 240;
+const HERO_HEIGHT = 280;
 const HERO_GAP = 12;
+const HERO_PAD = 16; // horizontal padding of the hero list
 const HERO_INTERVAL = 5000; // ms between auto-advances
-const HERO_MAX = 4;
+const HERO_MAX = 5;
+
+// Fake gradient: stacked bands, transparent at the top -> dark at the bottom.
+const HERO_FADE_STEPS = 12;
+const HERO_FADE_MAX = 0.78;
+const HERO_FADE_BANDS = Array.from({ length: HERO_FADE_STEPS }, (_, i) => {
+  const t = (i + 1) / HERO_FADE_STEPS;
+  return `rgba(0,0,0,${(Math.pow(t, 1.4) * HERO_FADE_MAX).toFixed(3)})`;
+});
 
 const ALL_CATEGORY = { id: null, label: 'All' };
 
@@ -80,8 +91,10 @@ function mapHero(p) {
     id: p._id,
     brand: p.brand,
     name: p.name,
+    description: p.description || '',
+    category: p.category || '',
     price: p.price,
-    label: p.tag === 'NEW' ? 'New in' : 'Featured',
+    tag: p.tag || null,
     image: p.images?.[0] ?? PLACEHOLDER_IMAGE,
   };
 }
@@ -115,7 +128,7 @@ const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'seri
 export default function Explore() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - 12) / 2;
-  const heroWidth = width - 16 * 2;
+  const heroWidth = width - HERO_PAD * 2;
   const heroStep = heroWidth + HERO_GAP;
 
   const { token, isAuthenticated } = useAuth();
@@ -125,6 +138,12 @@ export default function Explore() {
   const filters = useFilters();
   const activeCategory = filters.category;
   const activeCount = countActiveFilters(filters);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  // Pre-fetch brands early in the background for zero-latency modal opening
+  useEffect(() => {
+    getBrandsRequest().catch(() => {});
+  }, []);
 
   const [arrivals, setArrivals] = useState([]);
   const [popularStyles, setPopularStyles] = useState([]);
@@ -181,26 +200,39 @@ export default function Explore() {
         return;
       }
 
-      const [arrivalsRes, popularRes, featuredRes] = await Promise.all([
+      const [arrivalsRes, popularRes, featuredRes, newRes] = await Promise.all([
         getProductsRequest(arrivalsParams),
         getProductsRequest({ tag: 'POPULAR', limit: 6 }),
-        // Optional: products tagged FEATURED. If it fails, we just fall back.
+        // Products tagged FEATURED
         getProductsRequest({ tag: 'FEATURED', limit: HERO_MAX }).catch(() => ({ data: [] })),
+        // Products tagged NEW
+        getProductsRequest({ tag: 'NEW', limit: HERO_MAX }).catch(() => ({ data: [] })),
       ]);
 
       if (thisRequest !== requestId.current) return;
 
-      // Hero source: FEATURED -> POPULAR -> newest arrivals
-      const heroSource =
-        (featuredRes.data?.length && featuredRes.data) ||
-        (popularRes.data?.length && popularRes.data) ||
-        arrivalsRes.data ||
-        [];
+      // Hero source: prioritize FEATURED and NEW tagged products, then POPULAR, then newest arrivals
+      const candidateList = [
+        ...(featuredRes.data || []),
+        ...(newRes.data || []),
+        ...(popularRes.data || []),
+        ...(arrivalsRes.data || []),
+      ];
+
+      const seen = new Set();
+      const heroSource = [];
+      for (const p of candidateList) {
+        if (p && p._id && !seen.has(p._id)) {
+          seen.add(p._id);
+          heroSource.push(p);
+          if (heroSource.length >= HERO_MAX) break;
+        }
+      }
 
       setArrivals(arrivalsRes.data.map(mapProduct));
       setTotal(arrivalsRes.total ?? arrivalsRes.data.length);
       setPopularStyles(popularRes.data.map(mapStyle));
-      setHeroSlides(heroSource.slice(0, HERO_MAX).map(mapHero));
+      setHeroSlides(heroSource.map(mapHero));
       setHasData(true);
     } catch (e) {
       if (thisRequest !== requestId.current) return;
@@ -336,7 +368,7 @@ export default function Explore() {
     (id) => router.push({ pathname: '/Productdetails', params: { id } }),
     []
   );
-  const openFilters = useCallback(() => router.push('/filters'), []);
+  const openFilters = useCallback(() => setFilterOpen(true), []);
 
   /* ---- active filter chips (each one removable) ------------------------- */
   const chips = [];
@@ -506,6 +538,7 @@ export default function Explore() {
               decelerationRate="fast"
               scrollEventThrottle={16}
               onScroll={onHeroScroll}
+              removeClippedSubviews={false}
               contentContainerStyle={styles.heroList}
               ItemSeparatorComponent={() => <View style={{ width: HERO_GAP }} />}
               onScrollBeginDrag={() => setHeroPaused(true)}
@@ -513,7 +546,7 @@ export default function Explore() {
               onMomentumScrollEnd={() => setHeroPaused(false)}
               getItemLayout={(_, index) => ({
                 length: heroStep,
-                offset: heroStep * index,
+                offset: HERO_PAD + heroStep * index,
                 index,
               })}
               renderItem={({ item }) => (
@@ -616,6 +649,8 @@ export default function Explore() {
           </Text>
         )}
       </ScrollView>
+
+      <FilterModal visible={filterOpen} onClose={() => setFilterOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -623,22 +658,81 @@ export default function Explore() {
 /* --- pieces ------------------------------------------------------------- */
 
 function HeroSlide({ item, width, onPress }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const tagUpper = item.tag ? String(item.tag).toUpperCase() : '';
+
   return (
     <Pressable onPress={onPress} style={[styles.heroSlide, { width }]}>
-      <Image source={{ uri: item.image }} style={styles.heroImage} />
-      <View style={styles.heroScrim} />
-      <View style={styles.heroContent}>
-        <View style={styles.heroBadge}>
-          <Text style={styles.heroBadgeText}>{item.label.toUpperCase()}</Text>
+      {/* 1. photo (render order = stacking order, no zIndex needed) */}
+      {!imgFailed && (
+        <Image
+          source={{ uri: item.image }}
+          style={styles.heroImage}
+          resizeMode="cover"
+          onError={() => setImgFailed(true)}
+        />
+      )}
+
+      {/* 2. soft gradient fade at the bottom so text is readable */}
+      <View pointerEvents="none" style={styles.heroFade}>
+        {HERO_FADE_BANDS.map((bg, i) => (
+          <View key={i} style={{ flex: 1, backgroundColor: bg }} />
+        ))}
+      </View>
+
+      {/* 3. text + badges, always last so they sit on top */}
+      <View style={styles.heroContent} pointerEvents="none">
+        {/* Top badge + category pill */}
+        <View style={styles.heroTopRow}>
+          {tagUpper === 'FEATURED' ? (
+            <View style={[styles.heroBadge, styles.heroBadgeFeatured]}>
+              <Ionicons name="star" size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.heroBadgeText}>FEATURED</Text>
+            </View>
+          ) : tagUpper === 'NEW' ? (
+            <View style={[styles.heroBadge, styles.heroBadgeNew]}>
+              <Ionicons name="sparkles" size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.heroBadgeText}>NEW ARRIVAL</Text>
+            </View>
+          ) : tagUpper === 'POPULAR' ? (
+            <View style={[styles.heroBadge, styles.heroBadgePopular]}>
+              <Ionicons name="flame" size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.heroBadgeText}>TRENDING</Text>
+            </View>
+          ) : (
+            <View style={styles.heroBadge}>
+              <Text style={styles.heroBadgeText}>{item.category?.toUpperCase() || 'COLLECTION'}</Text>
+            </View>
+          )}
+
+          {!!item.category && (
+            <View style={styles.heroCatPill}>
+              <Text style={styles.heroCatPillText}>{item.category.toUpperCase()}</Text>
+            </View>
+          )}
         </View>
+
+        {/* Product details at the bottom */}
         <View>
-          <Text style={styles.heroBrand} numberOfLines={1}>{item.brand?.toUpperCase()}</Text>
-          <Text style={styles.heroTitle} numberOfLines={2}>{item.name}</Text>
+          <Text style={styles.heroBrand} numberOfLines={1}>
+            {item.brand?.toUpperCase()}
+          </Text>
+          <Text style={styles.heroTitle} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={styles.heroDescription} numberOfLines={2}>
+            {item.description
+              ? item.description
+              : `Explore new season essentials from ${item.brand || 'top brands'}. Crafted with premium materials.`}
+          </Text>
           <View style={styles.heroFoot}>
-            <Text style={styles.heroPrice}>{formatPrice(item.price)}</Text>
+            <View>
+              <Text style={styles.heroPriceLabel}>PRICE</Text>
+              <Text style={styles.heroPrice}>{formatPrice(item.price)}</Text>
+            </View>
             <View style={styles.heroCta}>
               <Text style={styles.heroCtaText}>Shop now</Text>
-              <Ionicons name="arrow-forward" size={14} color={C.ink} />
+              <Ionicons name="arrow-forward" size={13} color={C.ink} />
             </View>
           </View>
         </View>
@@ -801,18 +895,98 @@ const styles = StyleSheet.create({
   clearText: { color: C.danger, fontSize: 12, fontWeight: '700' },
 
   /* hero carousel */
-  heroList: { paddingHorizontal: 16 },
-  heroSlide: { height: HERO_HEIGHT, borderRadius: 18, overflow: 'hidden', backgroundColor: C.ink },
-  heroImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
-  heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,17,21,0.38)' },
-  heroContent: { flex: 1, justifyContent: 'space-between', padding: 18 },
-  heroBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
-  heroBadgeText: { color: '#fff', fontSize: 10, letterSpacing: 1.2, fontWeight: '700' },
-  heroBrand: { color: 'rgba(255,255,255,0.8)', fontSize: 11, letterSpacing: 1.2, fontWeight: '700' },
-  heroTitle: { color: '#fff', fontFamily: serif, fontSize: 24, lineHeight: 30, marginTop: 4, fontWeight: '600' },
+  heroList: { paddingHorizontal: HERO_PAD },
+  heroSlide: { height: HERO_HEIGHT, borderRadius: 20, overflow: 'hidden', backgroundColor: '#2A2E36' },
+  heroImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
+  heroFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 190,
+    flexDirection: 'column',
+  },
+  heroContent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+    padding: 18,
+  },
+  heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  heroBadgeFeatured: { backgroundColor: '#D97706' },
+  heroBadgeNew: { backgroundColor: '#059669' },
+  heroBadgePopular: { backgroundColor: '#DC2626' },
+  heroBadgeText: { color: '#fff', fontSize: 10, letterSpacing: 1.1, fontWeight: '800' },
+  heroCatPill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  heroCatPillText: { color: 'rgba(255, 255, 255, 0.9)', fontSize: 9, letterSpacing: 0.8, fontWeight: '700' },
+  heroBrand: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
+    letterSpacing: 1.4,
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  heroTitle: {
+    color: '#fff',
+    fontFamily: serif,
+    fontSize: 22,
+    lineHeight: 28,
+    marginTop: 3,
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  heroDescription: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+    fontWeight: '400',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   heroFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },
-  heroPrice: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  heroCta: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10 },
+  heroPriceLabel: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 9, letterSpacing: 0.8, fontWeight: '700' },
+  heroPrice: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 1,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  heroCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+  },
   heroCtaText: { fontWeight: '700', fontSize: 13, color: C.ink },
   heroDots: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 6, marginTop: 12 },
   heroDot: { height: 6, borderRadius: 3 },

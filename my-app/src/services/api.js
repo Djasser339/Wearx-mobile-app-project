@@ -134,8 +134,15 @@ export function getProductsRequest(params = {}) {
   ).toString();
   return apiRequest(`/products${query ? `?${query}` : ''}`, { method: 'GET' });
 }
-export function getBrandsRequest() {
-  return apiRequest('/products/brands', { method: 'GET' });
+let cachedBrands = null;
+
+export async function getBrandsRequest() {
+  if (cachedBrands) return cachedBrands;
+  const res = await apiRequest('/products/brands', { method: 'GET' });
+  if (res && res.data) {
+    cachedBrands = res;
+  }
+  return res;
 }
 
 export function getProductByIdRequest(id) {

@@ -75,7 +75,7 @@ const productSchema = new mongoose.Schema(
     // Optional: not required, and only these two values are allowed
     tag: {
       type: String,
-      enum: ["NEW", "POPULAR"],
+      enum: ["NEW", "POPULAR", "FEATURED"]
     },
   },
   {

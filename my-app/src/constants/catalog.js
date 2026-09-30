@@ -8,7 +8,7 @@ export const CATEGORIES = [
   { id: 'Shorts',      label: 'Shorts',      image: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=300&q=70' },
   { id: 'Jackets',     label: 'Jackets',     image: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=300&q=70' },
   { id: 'Shoes',       label: 'Shoes',       image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=300&q=70' },
-  { id: 'Accessories', label: 'Accessories', image: 'https://images.unsplash.com/photo-1611923134239-b9be5816e23f?w=300&q=70' },
+  { id: 'Accessories', label: 'Accessories', image: 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?w=300&q=70' },
 ];
 
 // Values must match `sortOptions` in productController.getProducts.

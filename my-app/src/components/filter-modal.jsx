@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -10,8 +11,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CATEGORIES, CURRENCY, SORTS } from '../constants/catalog';
@@ -36,18 +35,22 @@ const C = {
 const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 const digits = (t) => t.replace(/[^0-9]/g, '');
 
-export default function FiltersScreen() {
+export default function FilterModal({ visible, onClose }) {
   const insets = useSafeAreaInsets();
   const applied = useFilters();
 
-  // Edit a draft; nothing changes on Explore until "Apply".
   const [draft, setDraft] = useState(applied);
   const [brands, setBrands] = useState([]);
   const [brandsLoading, setBrandsLoading] = useState(false);
 
-  const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
-  const draftCount = countActiveFilters(draft);
+  // Sync draft whenever the modal opens
+  useEffect(() => {
+    if (visible) {
+      setDraft(applied);
+    }
+  }, [visible, applied]);
 
+  // Load brands (cached in api.js)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -56,7 +59,7 @@ export default function FiltersScreen() {
         const res = await getBrandsRequest();
         if (alive) setBrands(res.data || []);
       } catch {
-        // non-fatal: brand section just stays empty
+        // brand section stays empty on error
       } finally {
         if (alive) setBrandsLoading(false);
       }
@@ -66,140 +69,154 @@ export default function FiltersScreen() {
     };
   }, []);
 
+  const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
+  const draftCount = countActiveFilters(draft);
+
   const onApply = () => {
     let { minPrice, maxPrice } = draft;
-    // if the user typed min > max, swap them instead of returning nothing
     if (minPrice && maxPrice && Number(minPrice) > Number(maxPrice)) {
       [minPrice, maxPrice] = [maxPrice, minPrice];
     }
     setFilters({ ...draft, minPrice, maxPrice });
-    router.back();
+    onClose();
   };
 
   return (
-    <View style={styles.backdrop}>
-      <StatusBar style="light" />
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => router.back()} />
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        {/* top grabber pill */}
-        <View style={styles.grabber} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          {/* top grabber pill */}
+          <View style={styles.grabber} />
 
-        {/* header */}
-        <View style={styles.head}>
-          <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headBtn}>
-            <View style={styles.closeCircle}>
-              <Ionicons name="close" size={18} color={C.ink} />
-            </View>
-          </Pressable>
-
-          <Text style={styles.title}>Filters</Text>
-
-          <Pressable
-            onPress={() => setDraft(DEFAULT_FILTERS)}
-            hitSlop={10}
-            disabled={draftCount === 0}
-            style={[styles.headBtn, { alignItems: 'flex-end' }]}
-          >
-            <Text style={[styles.reset, draftCount === 0 && styles.resetDisabled]}>Reset</Text>
-          </Pressable>
-        </View>
-
-        <KeyboardAvoidingView
-          style={styles.keyboardAvoid}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.body}
-          >
-            {/* category */}
-            <Text style={styles.label}>Category</Text>
-            <View style={styles.chipWrap}>
-              <Chip label="All" active={!draft.category} onPress={() => set('category', null)} />
-              {CATEGORIES.map((c) => (
-                <Chip
-                  key={c.id}
-                  label={c.label}
-                  active={draft.category === c.id}
-                  onPress={() => set('category', draft.category === c.id ? null : c.id)}
-                />
-              ))}
-            </View>
-
-            {/* sort */}
-            <Text style={styles.label}>Sort by</Text>
-            <View style={styles.chipWrap}>
-              {SORTS.map((s) => (
-                <Chip
-                  key={s.id}
-                  label={s.label}
-                  active={draft.sort === s.id}
-                  onPress={() => set('sort', s.id)}
-                />
-              ))}
-            </View>
-
-            {/* price */}
-            <Text style={styles.label}>Price ({CURRENCY})</Text>
-            <View style={styles.priceRow}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputPrefix}>{CURRENCY}</Text>
-                <TextInput
-                  value={draft.minPrice}
-                  onChangeText={(t) => set('minPrice', digits(t))}
-                  placeholder="Min"
-                  placeholderTextColor={C.muted}
-                  keyboardType="number-pad"
-                  style={styles.priceInput}
-                />
+          {/* header */}
+          <View style={styles.head}>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.headBtn}>
+              <View style={styles.closeCircle}>
+                <Ionicons name="close" size={18} color={C.ink} />
               </View>
-              <Text style={styles.priceDash}>—</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputPrefix}>{CURRENCY}</Text>
-                <TextInput
-                  value={draft.maxPrice}
-                  onChangeText={(t) => set('maxPrice', digits(t))}
-                  placeholder="Max"
-                  placeholderTextColor={C.muted}
-                  keyboardType="number-pad"
-                  style={styles.priceInput}
-                />
-              </View>
-            </View>
+            </Pressable>
 
-            {/* brand */}
-            <Text style={styles.label}>Brand</Text>
-            {brandsLoading && brands.length === 0 ? (
-              <ActivityIndicator color={C.muted} style={{ alignSelf: 'flex-start', marginVertical: 8 }} />
-            ) : brands.length === 0 ? (
-              <Text style={styles.hint}>No brands available.</Text>
-            ) : (
+            <Text style={styles.title}>Filters</Text>
+
+            <Pressable
+              onPress={() => setDraft(DEFAULT_FILTERS)}
+              hitSlop={10}
+              disabled={draftCount === 0}
+              style={[styles.headBtn, { alignItems: 'flex-end' }]}
+            >
+              <Text style={[styles.reset, draftCount === 0 && styles.resetDisabled]}>Reset</Text>
+            </Pressable>
+          </View>
+
+          {/* scrollable filter content */}
+          <KeyboardAvoidingView
+            style={styles.keyboardAvoid}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.body}
+            >
+              {/* Category */}
+              <Text style={styles.label}>Category</Text>
               <View style={styles.chipWrap}>
-                {brands.map((b) => (
+                <Chip
+                  label="All"
+                  active={!draft.category}
+                  onPress={() => set('category', null)}
+                />
+                {CATEGORIES.map((c) => (
                   <Chip
-                    key={b}
-                    label={b}
-                    active={draft.brand === b}
-                    onPress={() => set('brand', draft.brand === b ? null : b)}
+                    key={c.id}
+                    label={c.label}
+                    active={draft.category === c.id}
+                    onPress={() => set('category', draft.category === c.id ? null : c.id)}
                   />
                 ))}
               </View>
-            )}
-          </ScrollView>
-        </KeyboardAvoidingView>
 
-        {/* footer */}
-        <View style={styles.foot}>
-          <Pressable style={styles.applyBtn} onPress={onApply}>
-            <Text style={styles.applyText}>
-              {draftCount > 0 ? `Apply Filters (${draftCount})` : 'Apply Filters'}
-            </Text>
-          </Pressable>
+              {/* Sort by */}
+              <Text style={styles.label}>Sort by</Text>
+              <View style={styles.chipWrap}>
+                {SORTS.map((s) => (
+                  <Chip
+                    key={s.id}
+                    label={s.label}
+                    active={draft.sort === s.id}
+                    onPress={() => set('sort', s.id)}
+                  />
+                ))}
+              </View>
+
+              {/* Price Range */}
+              <Text style={styles.label}>Price ({CURRENCY})</Text>
+              <View style={styles.priceRow}>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputPrefix}>{CURRENCY}</Text>
+                  <TextInput
+                    value={draft.minPrice}
+                    onChangeText={(t) => set('minPrice', digits(t))}
+                    placeholder="Min"
+                    placeholderTextColor={C.muted}
+                    keyboardType="number-pad"
+                    style={styles.priceInput}
+                  />
+                </View>
+                <Text style={styles.priceDash}>—</Text>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputPrefix}>{CURRENCY}</Text>
+                  <TextInput
+                    value={draft.maxPrice}
+                    onChangeText={(t) => set('maxPrice', digits(t))}
+                    placeholder="Max"
+                    placeholderTextColor={C.muted}
+                    keyboardType="number-pad"
+                    style={styles.priceInput}
+                  />
+                </View>
+              </View>
+
+              {/* Brand */}
+              <Text style={styles.label}>Brand</Text>
+              {brandsLoading && brands.length === 0 ? (
+                <ActivityIndicator color={C.muted} style={{ alignSelf: 'flex-start', marginVertical: 8 }} />
+              ) : brands.length === 0 ? (
+                <Text style={styles.hint}>No brands available.</Text>
+              ) : (
+                <View style={styles.chipWrap}>
+                  {brands.map((b) => (
+                    <Chip
+                      key={b}
+                      label={b}
+                      active={draft.brand === b}
+                      onPress={() => set('brand', draft.brand === b ? null : b)}
+                    />
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+          </KeyboardAvoidingView>
+
+          {/* footer with Apply CTA */}
+          <View style={styles.foot}>
+            <Pressable style={styles.applyBtn} onPress={onApply}>
+              <Text style={styles.applyText}>
+                {draftCount > 0 ? `Apply Filters (${draftCount})` : 'Apply Filters'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
-    </View>
+    </Modal>
   );
 }
 
