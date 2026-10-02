@@ -35,6 +35,29 @@ const userSchema = new mongoose.Schema(
       enum: ["customer", "seller", "admin"], // only these 3 values are allowed
       default: "customer", // new users are customers unless told otherwise
     },
+    isVerified: {
+      type: Boolean,
+      default: false, // flips to true once the user enters the correct code
+    },
+    // We store a HASH of the code, never the raw code — same idea as the
+    // password. If the database ever leaked, a stolen hash alone can't be
+    // used to verify someone's account.
+    verificationCodeHash: {
+      type: String,
+      select: false,
+    },
+    verificationCodeExpires: {
+      type: Date,
+      select: false,
+    },
+    // Counts wrong guesses since the last code was issued. Without this,
+    // someone could brute-force a 6-digit code (only ~1 million
+    // possibilities) by just trying every combination.
+    verificationAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
   },
   {
     timestamps: true, // Mongoose adds createdAt and updatedAt automatically

@@ -1,6 +1,11 @@
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
+const sendEmail = require("../utils/sendEmail");
+const { createVerificationCode, hashCode, CODE_TTL_MS } = require("../utils/verificationCode");
+
+const MAX_ATTEMPTS = 5;
+const RESEND_COOLDOWN_MS = 60 * 1000; // 1 minute between resend requests
 
 const handleError = (res, error) => {
   console.error(error);
@@ -21,6 +26,15 @@ const removePassword = (user) => {
   delete obj.password;
   return obj;
 };
+
+const verificationEmailHtml = (name, code) => `
+  <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; text-align:center;">
+    <h2>Welcome to WearX, ${name}!</h2>
+    <p>Enter this code in the app to verify your email address:</p>
+    <div style="font-size:32px;font-weight:800;letter-spacing:8px;background:#F5F6FA;padding:16px 24px;border-radius:12px;display:inline-block;margin:16px 0;">${code}</div>
+    <p style="color:#8B929C;font-size:12px;margin-top:24px;">This code expires in 10 minutes. If you didn't create this account, you can ignore this email.</p>
+  </div>
+`;
 
 // POST /api/auth/register — public signup
 const register = async (req, res) => {
@@ -50,17 +64,38 @@ const register = async (req, res) => {
     // database, or by another admin later), never through open signup.
     const safeRole = role === "seller" ? "seller" : "customer";
 
+    const { code, codeHash, expires } = createVerificationCode();
+
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       phone,
       role: safeRole,
+      verificationCodeHash: codeHash,
+      verificationCodeExpires: expires,
     });
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Verify your WearX email",
+        html: verificationEmailHtml(user.name, code),
+      });
+    } catch (emailError) {
+      // Don't fail the whole signup just because the email didn't go out —
+      // log it so you notice during testing, but let the user continue.
+      console.error("Failed to send verification email:", emailError.message);
+    }
 
     const token = generateToken(user._id);
 
-    res.status(201).json({ success: true, token, data: removePassword(user) });
+    res.status(201).json({
+      success: true,
+      token,
+      data: removePassword(user),
+      message: "Account created. Check your email for a 6-digit verification code.",
+    });
   } catch (error) {
     handleError(res, error);
   }
@@ -107,4 +142,118 @@ const getMe = async (req, res) => {
   res.status(200).json({ success: true, data: removePassword(req.user) });
 };
 
-module.exports = { register, login, getMe };
+// POST /api/auth/verify — protected: body { code }
+const verifyEmailCode = async (req, res) => {
+  try {
+    const { code } = req.body || {};
+
+    if (!code) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Enter the 6-digit code from your email." });
+    }
+
+    // req.user (from `protect`) doesn't include the select:false fields,
+    // so we fetch them explicitly here.
+    const user = await User.findById(req.user._id).select(
+      "+verificationCodeHash +verificationCodeExpires +verificationAttempts"
+    );
+
+    if (user.isVerified) {
+      return res.status(400).json({ success: false, message: "Your email is already verified." });
+    }
+
+    if (
+      !user.verificationCodeHash ||
+      !user.verificationCodeExpires ||
+      user.verificationCodeExpires < Date.now()
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "This code has expired. Request a new one." });
+    }
+
+    if (user.verificationAttempts >= MAX_ATTEMPTS) {
+      return res
+        .status(429)
+        .json({ success: false, message: "Too many incorrect attempts. Request a new code." });
+    }
+
+    const submittedHash = hashCode(String(code).trim());
+
+    if (submittedHash !== user.verificationCodeHash) {
+      user.verificationAttempts += 1;
+      await user.save();
+
+      const remaining = MAX_ATTEMPTS - user.verificationAttempts;
+      return res.status(400).json({
+        success: false,
+        message:
+          remaining > 0
+            ? `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} left.`
+            : "Incorrect code. Request a new one.",
+      });
+    }
+
+    user.isVerified = true;
+    user.verificationCodeHash = undefined;
+    user.verificationCodeExpires = undefined;
+    user.verificationAttempts = 0;
+    await user.save();
+
+    res.status(200).json({ success: true, message: "Email verified!", data: removePassword(user) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// POST /api/auth/resend-verification — protected
+const resendVerification = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("+verificationCodeExpires");
+
+    if (user.isVerified) {
+      return res.status(400).json({ success: false, message: "Your email is already verified." });
+    }
+
+    // Rate-limit resends: work out when the current code was ISSUED by
+    // subtracting its lifetime from its expiry time, and block a new one
+    // if that was less than RESEND_COOLDOWN_MS ago.
+    if (user.verificationCodeExpires) {
+      const issuedAt = user.verificationCodeExpires.getTime() - CODE_TTL_MS;
+      const msSinceIssued = Date.now() - issuedAt;
+      if (msSinceIssued < RESEND_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - msSinceIssued) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${waitSeconds}s before requesting another code.`,
+        });
+      }
+    }
+
+    const { code, codeHash, expires } = createVerificationCode();
+    user.verificationCodeHash = codeHash;
+    user.verificationCodeExpires = expires;
+    user.verificationAttempts = 0;
+    await user.save();
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Your new WearX verification code",
+        html: verificationEmailHtml(user.name, code),
+      });
+    } catch (emailError) {
+      console.error("Failed to send verification email:", emailError.message);
+      return res
+        .status(502)
+        .json({ success: false, message: "Could not send the email. Try again shortly." });
+    }
+
+    res.status(200).json({ success: true, message: "A new verification code has been sent." });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+module.exports = { register, login, getMe, verifyEmailCode, resendVerification };
