@@ -48,7 +48,7 @@ export default function Login() {
 
     const result = await login({ email: trimmedEmail, password });
     if (result.success) {
-      router.replace('/(tabs)/explore');
+      router.replace(result.user?.isVerified ? '/(tabs)/explore' : '/(auth)/Verifyemail');
     } else {
       setError(result.message);
     }

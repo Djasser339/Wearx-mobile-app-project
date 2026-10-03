@@ -63,7 +63,7 @@ export default function Signup() {
 
     const result = await register({ name: trimmedName, email: trimmedEmail, password });
     if (result.success) {
-      router.replace('/(tabs)/explore');
+      router.replace('/(auth)/Verifyemail');
     } else {
       setError(result.message);
     }

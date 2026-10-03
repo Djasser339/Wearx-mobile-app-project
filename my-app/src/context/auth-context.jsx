@@ -55,7 +55,7 @@ export function AuthProvider({ children }) {
       await SecureStore.setItemAsync(TOKEN_KEY, result.token);
       setToken(result.token);
       setUser(result.data);
-      return { success: true };
+      return { success: true, user: result.data };
     } catch (error) {
       const message =
         error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
@@ -72,7 +72,7 @@ export function AuthProvider({ children }) {
       await SecureStore.setItemAsync(TOKEN_KEY, result.token);
       setToken(result.token);
       setUser(result.data);
-      return { success: true };
+      return { success: true, user: result.data };
     } catch (error) {
       const message =
         error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
@@ -88,6 +88,12 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Patches the locally-held user object (e.g. { isVerified: true } after
+  // a successful code check) without needing a full re-fetch from /auth/me.
+  const updateUser = useCallback((patch) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
   const value = useMemo(
     () => ({
       token,
@@ -98,8 +104,9 @@ export function AuthProvider({ children }) {
       register,
       login,
       logout,
+      updateUser,
     }),
-    [token, user, isLoading, isSubmitting, register, login, logout]
+    [token, user, isLoading, isSubmitting, register, login, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

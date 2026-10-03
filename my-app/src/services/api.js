@@ -115,6 +115,13 @@ export function loginRequest({ email, password }) {
 
 export function meRequest(token) {
   return apiRequest('/auth/me', { method: 'GET', token });
+}//// verify screen
+export function verifyEmailCodeRequest(token, code) {
+  return apiRequest('/auth/verify', { method: 'POST', token, body: { code } });
+}
+ 
+export function resendVerificationRequest(token) {
+  return apiRequest('/auth/resend-verification', { method: 'POST', token });
 }
 
 // ---- endpoints used by the Profile screen ----
