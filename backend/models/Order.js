@@ -47,6 +47,10 @@ const orderSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    subtotal: { type: Number, min: 0 },
+    discount: { type: Number, min: 0, default: 0 },
+    shippingFee: { type: Number, min: 0, default: 0 },
+    promoCode: { type: String, trim: true, uppercase: true },
     shippingAddress: {
       type: shippingAddressSchema,
       required: true,

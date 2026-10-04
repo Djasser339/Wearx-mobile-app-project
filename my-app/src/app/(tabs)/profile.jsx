@@ -24,12 +24,8 @@ import { getMyOrdersRequest, getWishlistRequest } from '../../services/api';
  * ========================================================================= */
 
 const MENU = [
-  { id: 'orders', icon: 'package', title: 'My Orders', sub: 'Track purchases & archival invoices' },
-  { id: 'addresses', icon: 'map-pin', title: 'Addresses', sub: 'Saved shipping & billing addresses' },
-  { id: 'payments', icon: 'credit-card', title: 'Payment Methods', sub: 'Cards & Apple Pay linked' },
-  { id: 'settings', icon: 'sliders', title: 'Account Settings', sub: 'Personal details & security keys' },
-  { id: 'notifications', icon: 'bell', title: 'Notifications', sub: 'Drop updates, restocks & concierge' },
-  { id: 'help', icon: 'headphones', title: 'Help & Support', sub: 'Direct concierge line & garment care FAQ' },
+  { id: 'orders', icon: 'package', title: 'My Orders', sub: 'View purchases and delivery status' },
+  { id: 'help', icon: 'headphones', title: 'Help & Support', sub: 'Order and delivery questions' },
 ];
 
 const ACTIVE_STATUSES = new Set(['pending', 'confirmed', 'shipped']);
@@ -143,7 +139,10 @@ export default function Profile() {
       },
     ]);
 
-  const comingSoon = (label) => Alert.alert(label, 'This isn\u2019t built yet — coming soon.');
+  const openMenuItem = (id) => {
+    if (id === 'orders') router.push('/orders');
+    if (id === 'help') router.push('/support');
+  };
 
   if (loading) {
     return (
@@ -240,7 +239,7 @@ export default function Profile() {
               <Pressable
                 key={item.id}
                 style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-                onPress={() => comingSoon(item.title)}
+                onPress={() => openMenuItem(item.id)}
               >
                 <View style={styles.rowIcon}>
                   <Feather name={item.icon} size={17} color={C.ink} />

@@ -37,6 +37,7 @@ const createOrder = async (req, res) => {
   try {
     const userId = req.user.id;
     const { shippingAddress } = req.body || {};
+    const promoCode = String(req.body?.promoCode || "").trim().toUpperCase();
 
     if (!mongoose.isValidObjectId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user id" });
@@ -57,6 +58,9 @@ const createOrder = async (req, res) => {
         message: "shippingAddress needs fullName, phone, address and city",
       });
     }
+    if (promoCode && promoCode !== "WEARX10") {
+      return res.status(400).json({ success: false, message: "Promo code is not valid" });
+    }
 
     const cart = await Cart.findOne({ user: userId });
     if (!cart || cart.items.length === 0) {
@@ -64,7 +68,7 @@ const createOrder = async (req, res) => {
     }
 
     const orderItems = [];
-    let totalPrice = 0;
+    let subtotal = 0;
 
     for (const cartItem of cart.items) {
       const product = await Product.findById(cartItem.product);
@@ -98,12 +102,20 @@ const createOrder = async (req, res) => {
         selectedSize: cartItem.selectedSize,
         selectedColor: cartItem.selectedColor,
       });
-      totalPrice += product.price * cartItem.quantity;
+      subtotal += product.price * cartItem.quantity;
     }
+
+    const discount = promoCode ? subtotal * 0.1 : 0;
+    const shippingFee = subtotal >= 15000 ? 0 : 500;
+    const totalPrice = subtotal - discount + shippingFee;
 
     order = await Order.create({
       user: userId,
       items: orderItems,
+      subtotal,
+      discount,
+      shippingFee,
+      promoCode: promoCode || undefined,
       totalPrice,
       shippingAddress,
     });

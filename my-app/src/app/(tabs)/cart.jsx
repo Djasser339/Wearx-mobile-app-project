@@ -217,7 +217,10 @@ export default function Cart() {
 
       {items.length > 0 && (
         <View style={styles.checkoutBar}>
-          <Pressable style={({ pressed }) => [styles.checkout, pressed && { opacity: 0.88 }]} onPress={() => router.push('/checkout')}>
+          <Pressable
+            style={({ pressed }) => [styles.checkout, pressed && { opacity: 0.88 }]}
+            onPress={() => router.push({ pathname: '/checkout', params: { promoCode: promoApplied ? PROMO_CODE : '' } })}
+          >
             <Text style={styles.checkoutText}>Checkout  •  {formatPrice(total)}</Text>
           </Pressable>
         </View>

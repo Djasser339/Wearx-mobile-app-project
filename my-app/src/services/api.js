@@ -130,6 +130,18 @@ export function getMyOrdersRequest(token) {
   return apiRequest('/orders/user', { method: 'GET', token });
 }
 
+export function createOrderRequest(token, shippingAddress, promoCode) {
+  return apiRequest('/orders', {
+    method: 'POST',
+    body: { shippingAddress, promoCode },
+    token,
+  });
+}
+
+export function cancelOrderRequest(token, orderId) {
+  return apiRequest(`/orders/${orderId}/cancel`, { method: 'PUT', token });
+}
+
 export function getWishlistRequest(token) {
   return apiRequest('/wishlist', { method: 'GET', token });
 }
